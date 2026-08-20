@@ -1,0 +1,13 @@
+diff --git a/components/camel-reactor/src/test/java/org/apache/camel/component/reactor/engine/ReactorStreamsServiceTest.java b/components/camel-reactor/src/test/java/org/apache/camel/component/reactor/engine/ReactorStreamsServiceTest.java
+index 19a1f5ce..59a5bcd6 100644
+--- a/components/camel-reactor/src/test/java/org/apache/camel/component/reactor/engine/ReactorStreamsServiceTest.java
++++ b/components/camel-reactor/src/test/java/org/apache/camel/component/reactor/engine/ReactorStreamsServiceTest.java
+@@ -88,7 +88,7 @@ public class ReactorStreamsServiceTest extends ReactorStreamsServiceTestSupport
+             public void configure() throws Exception {
+                 from("timer:tick?period=5&repeatCount=30")
+                     .setBody()
+-                        .header(Exchange.TIMER_COUNTER)
++                        .exchangeProperty(Exchange.TIMER_COUNTER)
+                     .to("reactive-streams:tick");
+             }
+         });

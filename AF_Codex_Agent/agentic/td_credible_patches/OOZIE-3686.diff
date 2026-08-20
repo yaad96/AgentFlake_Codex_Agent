@@ -1,0 +1,83 @@
+diff --git a/core/build/test/data/dfs/name1/current/VERSION b/core/build/test/data/dfs/name1/current/VERSION
+new file mode 100644
+index 0000000..c6933c1
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 20:29:36 UTC 2026
++namespaceID=304535476
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-2034362217-172.17.0.2-1785529776457
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..b0d1447
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..5d4601b
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..5124bd4
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++2134e8debf2ca0e2d673a051294987da *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name1/current/seen_txid b/core/build/test/data/dfs/name1/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/build/test/data/dfs/name2/current/VERSION b/core/build/test/data/dfs/name2/current/VERSION
+new file mode 100644
+index 0000000..c6933c1
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 20:29:36 UTC 2026
++namespaceID=304535476
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-2034362217-172.17.0.2-1785529776457
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..b0d1447
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..5d4601b
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..5124bd4
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++2134e8debf2ca0e2d673a051294987da *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name2/current/seen_txid b/core/build/test/data/dfs/name2/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/src/test/java/org/apache/oozie/command/wf/TestWorkflowActionRetryInfoXCommand.java b/core/src/test/java/org/apache/oozie/command/wf/TestWorkflowActionRetryInfoXCommand.java
+index a12335f..d15a24b 100644
+--- a/core/src/test/java/org/apache/oozie/command/wf/TestWorkflowActionRetryInfoXCommand.java
++++ b/core/src/test/java/org/apache/oozie/command/wf/TestWorkflowActionRetryInfoXCommand.java
+@@ -148,7 +148,7 @@ public class TestWorkflowActionRetryInfoXCommand extends XDataTestCase {
+             public boolean evaluate() throws Exception {
+                 List<WorkflowActionBean> actions = jpaService.execute(actionsGetExecutor);
+                 for (WorkflowActionBean bean : actions) {
+-                    if (bean.getType().equals("test") && bean.getUserRetryCount() == 2) {
++                    if (bean.getType().equals("test") && bean.getUserRetryCount() == 2 && bean.getEndTime() != null) {
+                         return true;
+                     }
+                 }

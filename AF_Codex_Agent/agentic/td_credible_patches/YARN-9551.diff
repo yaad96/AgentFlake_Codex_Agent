@@ -1,0 +1,25 @@
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-common/src/main/java/org/apache/hadoop/yarn/client/api/impl/TimelineV2ClientImpl.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-common/src/main/java/org/apache/hadoop/yarn/client/api/impl/TimelineV2ClientImpl.java
+index c5aef4e1..cac3aa6c 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-common/src/main/java/org/apache/hadoop/yarn/client/api/impl/TimelineV2ClientImpl.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-common/src/main/java/org/apache/hadoop/yarn/client/api/impl/TimelineV2ClientImpl.java
+@@ -512,7 +512,19 @@ private void publishWithoutBlockingOnQueue(
+           while (true) {
+             // loop till we find a sync put Entities or there is nothing
+             // to take
+-            EntitiesHolder nextEntityInTheQueue = timelineEntityQueue.poll();
++            EntitiesHolder nextEntityInTheQueue;
++            try {
++              // Use a short timed poll to allow producer threads a brief
++              // window to enqueue more entities before concluding the
++              // queue is empty (avoids a race between async enqueues).
++              nextEntityInTheQueue =
++                  timelineEntityQueue.poll(10, TimeUnit.MILLISECONDS);
++            } catch (InterruptedException ie) {
++              LOG.warn("Interrupted while waiting for entities to merge");
++              Thread.currentThread().interrupt();
++              entitiesHolder.run();
++              return;
++            }
+             if (nextEntityInTheQueue == null) {
+               // Nothing in the queue just publish and get back to the
+               // blocked wait state

@@ -1,0 +1,14 @@
+diff --git a/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java b/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
+index e182b75..50f5b2d 100644
+--- a/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
++++ b/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
+@@ -92,6 +92,9 @@ public class InputNodeTest
+     };
+     t.start();
+ 
++    while (!ab.get()) {
++      Thread.sleep(100);
++    }
+     Thread.sleep(3000);
+ 
+     t.stop();

@@ -1,0 +1,14 @@
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-applications/hadoop-yarn-services/hadoop-yarn-services-core/src/test/java/org/apache/hadoop/yarn/service/TestYarnNativeServices.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-applications/hadoop-yarn-services/hadoop-yarn-services-core/src/test/java/org/apache/hadoop/yarn/service/TestYarnNativeServices.java
+index a22ada44..3cfad387 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-applications/hadoop-yarn-services/hadoop-yarn-services-core/src/test/java/org/apache/hadoop/yarn/service/TestYarnNativeServices.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-applications/hadoop-yarn-services/hadoop-yarn-services-core/src/test/java/org/apache/hadoop/yarn/service/TestYarnNativeServices.java
+@@ -439,6 +439,9 @@ public void testExpressUpgrade() throws Exception {
+     component2.getConfiguration().getEnv().put("key2", "val2");
+     client.actionUpgradeExpress(service);
+ 
++    // wait for express upgrade to begin
++    waitForServiceToBeInState(client, service, ServiceState.EXPRESS_UPGRADING);
++
+     // wait for upgrade to complete
+     waitForServiceToBeStable(client, service);
+     Service active = client.getStatus(service.getName());

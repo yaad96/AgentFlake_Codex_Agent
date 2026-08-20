@@ -1,0 +1,22 @@
+diff --git a/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id b/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id
+new file mode 100644
+index 0000000..315affb
+--- /dev/null
++++ b/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id
+@@ -0,0 +1 @@
++hl6n56zrjfa7fgycvofadh5okm
+\ No newline at end of file
+diff --git a/curator-recipes/src/test/java/org/apache/curator/framework/recipes/locks/TestInterProcessMutexBase.java b/curator-recipes/src/test/java/org/apache/curator/framework/recipes/locks/TestInterProcessMutexBase.java
+index 92cf397..4ea7c7b 100644
+--- a/curator-recipes/src/test/java/org/apache/curator/framework/recipes/locks/TestInterProcessMutexBase.java
++++ b/curator-recipes/src/test/java/org/apache/curator/framework/recipes/locks/TestInterProcessMutexBase.java
+@@ -283,8 +283,8 @@ public abstract class TestInterProcessMutexBase extends BaseClassForTests {
+                                 Thread.sleep(100);
+                             }
+                         } finally {
+-                            mutex.release();
+                             hasLock.set(false);
++                            mutex.release();
+                         }
+                         return null;
+                     }

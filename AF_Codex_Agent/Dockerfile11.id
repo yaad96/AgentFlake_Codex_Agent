@@ -1,0 +1,26 @@
+FROM maven:3.8.6-openjdk-11
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y autoconf automake libtool curl make g++ unzip python3 python3-pip && \
+    ln -s /usr/bin/python3 /usr/bin/python && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt update && apt install -y libxml2-utils
+
+RUN apt-get update && \
+    apt-get install -y xmlstarlet && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mvn edu.illinois:nondex-maven-plugin:2.1:help -q
+
+# Claude Code CLI — used by the agentic_claude_cli driver (the "Claude Code
+# agent" repair variant). Installed to /root/.local/bin. Auth is supplied at
+# run time via the ANTHROPIC_API_KEY env var passed to `docker exec`.
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
+RUN claude --version
+
+CMD ["./run_flaky_nondex_mod.sh", "nifi-nar-bundles/nifi-solr-bundle/nifi-solr-processors", "org.apache.nifi.processors.solr.TestQuerySolr#testAttributes", "5"]
+

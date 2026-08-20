@@ -1,0 +1,15 @@
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
+index f2ac6a6..5f664a0 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
+@@ -661,6 +661,10 @@ queue, new ActiveUsersManager(getRootQueueMetrics()),
+ 
+     applications.put(applicationAttemptId, schedulerApp);
+ 
++    // Update runnability immediately so that the app can be scheduled
++    // without waiting for the next UpdateThread cycle (UPDATE_INTERVAL ms).
++    updateRunnability();
++
+     LOG.info("Application Submission: " + applicationAttemptId +
+         ", user: "+ user +
+         ", currently active: " + applications.size());

@@ -1,0 +1,17 @@
+diff --git a/core/camel-support/src/main/java/org/apache/camel/support/task/BackgroundTask.java b/core/camel-support/src/main/java/org/apache/camel/support/task/BackgroundTask.java
+index fc3e60cd..9c0bd3ec 100644
+--- a/core/camel-support/src/main/java/org/apache/camel/support/task/BackgroundTask.java
++++ b/core/camel-support/src/main/java/org/apache/camel/support/task/BackgroundTask.java
+@@ -153,7 +153,11 @@ public class BackgroundTask implements BlockingTask {
+                 latch.await();
+                 completed = true;
+             } else {
+-                if (!latch.await(budget.maxDuration(), TimeUnit.MILLISECONDS)) {
++                // Add half an interval as a buffer so the last scheduled execution
++                // (at t=maxDuration from the schedule call) completes before the
++                // latch expires despite OS timer jitter (~1ms resolution).
++                long timeout = budget.maxDuration() + budget.interval() / 2;
++                if (!latch.await(timeout, TimeUnit.MILLISECONDS)) {
+                     LOG.debug("Timeout out waiting for the completion of the task");
+                 } else {
+                     LOG.debug("The task has finished the execution and it is ready to continue");

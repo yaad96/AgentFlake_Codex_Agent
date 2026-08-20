@@ -1,0 +1,47 @@
+diff --git a/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java b/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
+index 2c9dfe33..72fe150e 100644
+--- a/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
++++ b/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
+@@ -143,24 +143,26 @@ final class ReactorStreamsService extends ServiceSupport implements CamelReactiv
+ 
+     @Override
+     public Publisher<Exchange> from(String uri) {
+-        final String name = publishedUriToStream.computeIfAbsent(uri, camelUri -> {
+-            try {
+-                String uuid = context.getUuidGenerator().generateUuid();
+-
+-                context.addRoutes(new RouteBuilder() {
+-                    @Override
+-                    public void configure() throws Exception {
+-                        from(camelUri).to("reactive-streams:" + uuid);
+-                    }
+-                });
++        return Flux.defer(() -> {
++            final String name = publishedUriToStream.computeIfAbsent(uri, camelUri -> {
++                try {
++                    String uuid = context.getUuidGenerator().generateUuid();
++
++                    context.addRoutes(new RouteBuilder() {
++                        @Override
++                        public void configure() throws Exception {
++                            from(camelUri).to("reactive-streams:" + uuid);
++                        }
++                    });
++
++                    return uuid;
++                } catch (Exception e) {
++                    throw new IllegalStateException("Unable to create source reactive stream from direct URI: " + uri, e);
++                }
++            });
+ 
+-                return uuid;
+-            } catch (Exception e) {
+-                throw new IllegalStateException("Unable to create source reactive stream from direct URI: " + uri, e);
+-            }
++            return fromStream(name);
+         });
+-
+-        return fromStream(name);
+     }
+ 
+     @Override

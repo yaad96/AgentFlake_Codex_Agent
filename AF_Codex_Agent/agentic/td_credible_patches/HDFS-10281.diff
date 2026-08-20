@@ -1,0 +1,23 @@
+diff --git a/hadoop-hdfs-project/hadoop-hdfs/src/test/java/org/apache/hadoop/hdfs/server/namenode/ha/TestPendingCorruptDnMessages.java b/hadoop-hdfs-project/hadoop-hdfs/src/test/java/org/apache/hadoop/hdfs/server/namenode/ha/TestPendingCorruptDnMessages.java
+index 5f116d9..e4e6a7d 100644
+--- a/hadoop-hdfs-project/hadoop-hdfs/src/test/java/org/apache/hadoop/hdfs/server/namenode/ha/TestPendingCorruptDnMessages.java
++++ b/hadoop-hdfs-project/hadoop-hdfs/src/test/java/org/apache/hadoop/hdfs/server/namenode/ha/TestPendingCorruptDnMessages.java
+@@ -103,7 +103,7 @@ public void testChangedStorageId() throws IOException, URISyntaxException,
+         newStorageId = getRegisteredDatanodeUid(cluster, 1);
+         System.out.println("====> oldStorageId: " + oldStorageId +
+             " newStorageId: " + newStorageId);
+-      } while (newStorageId.equals(oldStorageId));
++      } while (newStorageId == null || newStorageId.equals(oldStorageId));
+       
+       assertEquals(0, cluster.getNamesystem(1).getBlockManager()
+           .getPendingDataNodeMessageCount());
+@@ -121,6 +121,9 @@ private static String getRegisteredDatanodeUid(
+     List<DatanodeDescriptor> registeredDatanodes = cluster.getNamesystem(nnIndex)
+         .getBlockManager().getDatanodeManager()
+         .getDatanodeListForReport(DatanodeReportType.ALL);
++    if (registeredDatanodes.size() == 0) {
++      return null;
++    }
+     assertEquals(1, registeredDatanodes.size());
+     return registeredDatanodes.get(0).getDatanodeUuid();
+   }

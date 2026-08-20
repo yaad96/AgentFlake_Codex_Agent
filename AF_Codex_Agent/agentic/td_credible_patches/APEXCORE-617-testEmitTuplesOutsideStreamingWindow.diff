@@ -1,0 +1,22 @@
+diff --git a/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java b/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
+index e182b75..348a7f6 100644
+--- a/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
++++ b/engine/src/test/java/com/datatorrent/stram/engine/InputNodeTest.java
+@@ -60,7 +60,6 @@ public class InputNodeTest
+     emitTestHelper(false);
+   }
+ 
+-  @SuppressWarnings("deprecation")
+   private void emitTestHelper(boolean trueEmitTuplesFalseHandleIdleTime) throws Exception
+   {
+     TestInputOperator tio = new TestInputOperator();
+@@ -94,7 +93,8 @@ public class InputNodeTest
+ 
+     Thread.sleep(3000);
+ 
+-    t.stop();
++    in.shutdown();
++    t.join();
+ 
+     Assert.assertTrue("Should have emitted some tuples", testSink.collectedTuples.size() > 0);
+ 

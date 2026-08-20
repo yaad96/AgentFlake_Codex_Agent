@@ -1,0 +1,21 @@
+diff --git a/engine/src/test/java/com/datatorrent/stram/plan/logical/DelayOperatorTest.java b/engine/src/test/java/com/datatorrent/stram/plan/logical/DelayOperatorTest.java
+index 20f032c..087598c 100644
+--- a/engine/src/test/java/com/datatorrent/stram/plan/logical/DelayOperatorTest.java
++++ b/engine/src/test/java/com/datatorrent/stram/plan/logical/DelayOperatorTest.java
+@@ -263,7 +263,7 @@ public class DelayOperatorTest
+     private int simulateFailureWindows = 0;
+     private boolean simulateFailureAfterCommit = false;
+     private int windowCount = 0;
+-    private static boolean failureSimulated = false;
++    private static volatile boolean failureSimulated = false;
+ 
+     @Override
+     public void beginWindow(long windowId)
+@@ -349,6 +349,7 @@ public class DelayOperatorTest
+       @Override
+       public Boolean call() throws Exception
+       {
++        Thread.sleep(61000);
+         return FailableFibonacciOperator.results.size() >= 30;
+       }
+     });

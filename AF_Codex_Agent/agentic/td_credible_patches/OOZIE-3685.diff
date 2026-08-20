@@ -1,0 +1,111 @@
+diff --git a/core/build/test/data/dfs/name1/current/VERSION b/core/build/test/data/dfs/name1/current/VERSION
+new file mode 100644
+index 0000000..0a978d3
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 20:00:13 UTC 2026
++namespaceID=1671968169
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-1663298716-172.17.0.2-1785528013795
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..c663773
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..2fbfd5c
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..edbc091
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++bd58d6edd113e8f5482dac0f5e99b32a *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name1/current/seen_txid b/core/build/test/data/dfs/name1/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/build/test/data/dfs/name2/current/VERSION b/core/build/test/data/dfs/name2/current/VERSION
+new file mode 100644
+index 0000000..0a978d3
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 20:00:13 UTC 2026
++namespaceID=1671968169
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-1663298716-172.17.0.2-1785528013795
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..c663773
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..2fbfd5c
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..edbc091
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++bd58d6edd113e8f5482dac0f5e99b32a *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name2/current/seen_txid b/core/build/test/data/dfs/name2/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/src/main/java/org/apache/oozie/service/CallableQueueService.java b/core/src/main/java/org/apache/oozie/service/CallableQueueService.java
+index f158a15..2e55ca1 100644
+--- a/core/src/main/java/org/apache/oozie/service/CallableQueueService.java
++++ b/core/src/main/java/org/apache/oozie/service/CallableQueueService.java
+@@ -194,11 +194,11 @@ public class CallableQueueService implements Service, Instrumentable {
+         public void run() {
+             XCallable<?> callable = null;
+             try {
+-                removeFromUniqueCallables();
+                 if (Services.get().getSystemMode() == SYSTEM_MODE.SAFEMODE) {
+                     log.info("Oozie is in SAFEMODE, requeuing callable [{0}] with [{1}]ms delay", getElement().getType(),
+                             SAFE_MODE_DELAY);
+                     setDelay(SAFE_MODE_DELAY, TimeUnit.MILLISECONDS);
++                    removeFromUniqueCallables();
+                     queue(this, true);
+                     return;
+                 }
+@@ -219,11 +219,15 @@ public class CallableQueueService implements Service, Instrumentable {
+                         incrCounter(INSTR_FAILED_COUNTER, 1);
+                         log.warn("exception callable [{0}], {1}", callable.getName(), ex.getMessage(), ex);
+                     }
++                    finally {
++                        removeFromUniqueCallables();
++                    }
+                 }
+                 else {
+                     log.warn("max concurrency for callable [{0}] exceeded, requeueing with [{1}]ms delay", callable
+                             .getType(), CONCURRENCY_DELAY);
+                     setDelay(CONCURRENCY_DELAY, TimeUnit.MILLISECONDS);
++                    removeFromUniqueCallables();
+                     queue(this, true);
+                     incrCounter(callable.getType() + "#exceeded.concurrency", 1);
+                 }
+@@ -232,6 +236,7 @@ public class CallableQueueService implements Service, Instrumentable {
+                 incrCounter(INSTR_FAILED_COUNTER, 1);
+                 log.warn("exception callable [{0}], {1}", callable == null ? "N/A" : callable.getName(),
+                         t.getMessage(), t);
++                removeFromUniqueCallables();
+             }
+             finally {
+                 if (callable != null) {

@@ -1,0 +1,46 @@
+diff --git a/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java b/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
+index 2c9dfe33..8788dde8 100644
+--- a/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
++++ b/components/camel-reactor/src/main/java/org/apache/camel/component/reactor/engine/ReactorStreamsService.java
+@@ -318,24 +318,25 @@ final class ReactorStreamsService extends ServiceSupport implements CamelReactiv
+         }
+ 
+         return Mono.<Exchange>create(
+-            sink -> data.addOnCompletion(new Synchronization() {
+-                @Override
+-                public void onComplete(Exchange exchange) {
+-                    sink.success(exchange);
+-                }
+-
+-                @Override
+-                public void onFailure(Exchange exchange) {
+-                    Throwable throwable = exchange.getException();
+-                    if (throwable == null) {
+-                        throwable = new IllegalStateException("Unknown Exception");
++            sink -> {
++                data.addOnCompletion(new Synchronization() {
++                    @Override
++                    public void onComplete(Exchange exchange) {
++                        sink.success(exchange);
+                     }
+ 
+-                    sink.error(throwable);
+-                }
+-            })
+-        ).doOnSubscribe(
+-            subs -> consumer.process(data, ReactorStreamsConstants.EMPTY_ASYNC_CALLBACK)
++                    @Override
++                    public void onFailure(Exchange exchange) {
++                        Throwable throwable = exchange.getException();
++                        if (throwable == null) {
++                            throwable = new IllegalStateException("Unknown Exception");
++                        }
++
++                        sink.error(throwable);
++                    }
++                });
++                consumer.process(data, ReactorStreamsConstants.EMPTY_ASYNC_CALLBACK);
++            }
+         );
+     }
+ }

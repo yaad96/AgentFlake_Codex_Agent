@@ -1,0 +1,112 @@
+[
+ {
+  "container": "YARN-9405",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/YARN-9405/run_01/claude_outputs/patch.diff",
+  "bytes": 1218
+ },
+ {
+  "container": "CAMEL-17188",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-17188/run_01/claude_outputs/patch.diff",
+  "bytes": 1240
+ },
+ {
+  "container": "HDFS-10281",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/HDFS-10281/run_01/claude_outputs/patch.diff",
+  "bytes": 1511
+ },
+ {
+  "container": "OOZIE-3683",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/OOZIE-3683/run_01/claude_outputs/patch.diff",
+  "bytes": 4048
+ },
+ {
+  "container": "OOZIE-3685",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/OOZIE-3685/run_01/claude_outputs/patch.diff",
+  "bytes": 5629
+ },
+ {
+  "container": "OOZIE-3686",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/OOZIE-3686/run_01/claude_outputs/patch.diff",
+  "bytes": 4300
+ },
+ {
+  "container": "HDFS-11682",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/HDFS-11682/run_01/claude_outputs/patch.diff",
+  "bytes": 860
+ },
+ {
+  "container": "HADOOP-10394_testDoFilterAuthentication",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/HADOOP-10394_testDoFilterAuthentication/run_01/claude_outputs/patch.diff",
+  "bytes": 1356
+ },
+ {
+  "container": "HADOOP-10394_testDoFilterAuthenticationWithDomainPath",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/HADOOP-10394_testDoFilterAuthenticationWithDomainPath/run_01/claude_outputs/patch.diff",
+  "bytes": 1047
+ },
+ {
+  "container": "HADOOP-10394_testDoFilterAuthenticationWithInvalidToken",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/HADOOP-10394_testDoFilterAuthenticationWithInvalidToken/run_01/claude_outputs/patch.diff",
+  "bytes": 1047
+ },
+ {
+  "container": "YARN-9551",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/YARN-9551/run_01/claude_outputs/patch.diff",
+  "bytes": 1655
+ },
+ {
+  "container": "CURATOR-681",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CURATOR-681/run_01/claude_outputs/patch.diff",
+  "bytes": 1232
+ },
+ {
+  "container": "CURATOR-671",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CURATOR-671/run_01/claude_outputs/patch.diff",
+  "bytes": 1926
+ },
+ {
+  "container": "APEXCORE-403",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/APEXCORE-403/run_01/claude_outputs/patch.diff",
+  "bytes": 973
+ },
+ {
+  "container": "YARN-1268",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/YARN-1268/run_01/claude_outputs/patch.diff",
+  "bytes": 1243
+ },
+ {
+  "container": "APEXCORE-617-testEmitTuplesOutsideStreamingWindow",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/APEXCORE-617-testEmitTuplesOutsideStreamingWindow/run_01/claude_outputs/patch.diff",
+  "bytes": 823
+ },
+ {
+  "container": "CAMEL-12025-testTo",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testTo/run_01/claude_outputs/patch.diff",
+  "bytes": 2153
+ },
+ {
+  "container": "CAMEL-12025-testToWithExchange",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testToWithExchange/run_01/claude_outputs/patch.diff",
+  "bytes": 2153
+ },
+ {
+  "container": "CAMEL-12025-testToFunction",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testToFunction/run_01/claude_outputs/patch.diff",
+  "bytes": 2153
+ },
+ {
+  "container": "CAMEL-12025-testToFunctionWithExchange",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testToFunctionWithExchange/run_01/claude_outputs/patch.diff",
+  "bytes": 2153
+ },
+ {
+  "container": "CAMEL-12025-testFrom",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testFrom/run_01/claude_outputs/patch.diff",
+  "bytes": 2179
+ },
+ {
+  "container": "CAMEL-12025-testFromStreamTimer",
+  "source": "AgentFlake_ClaudeAgent_results/agentflake_nio_td/data/CAMEL-12025-testFromStreamTimer/run_01/claude_outputs/patch.diff",
+  "bytes": 956
+ }
+]

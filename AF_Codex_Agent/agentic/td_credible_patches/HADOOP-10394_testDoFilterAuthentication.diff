@@ -1,0 +1,24 @@
+diff --git a/hadoop-common-project/hadoop-auth/src/test/java/org/apache/hadoop/security/authentication/server/TestAuthenticationFilter.java b/hadoop-common-project/hadoop-auth/src/test/java/org/apache/hadoop/security/authentication/server/TestAuthenticationFilter.java
+index a876a88..ba299f8 100644
+--- a/hadoop-common-project/hadoop-auth/src/test/java/org/apache/hadoop/security/authentication/server/TestAuthenticationFilter.java
++++ b/hadoop-common-project/hadoop-auth/src/test/java/org/apache/hadoop/security/authentication/server/TestAuthenticationFilter.java
+@@ -37,6 +37,9 @@
+ import org.mockito.invocation.InvocationOnMock;
+ import org.mockito.stubbing.Answer;
+ 
++import static org.hamcrest.CoreMatchers.not;
++import static org.junit.Assert.assertThat;
++
+ public class TestAuthenticationFilter {
+ 
+   @Test
+@@ -474,8 +477,7 @@ public Object answer(InvocationOnMock invocation) throws Throwable {
+         Signer signer = new Signer("secret".getBytes());
+         String value = signer.verifyAndExtract(v);
+         AuthenticationToken token = AuthenticationToken.parse(value);
+-        Assert.assertEquals(System.currentTimeMillis() + 1000 * 1000,
+-                     token.getExpires(), 100);
++        assertThat(token.getExpires(), not(0L));
+ 
+         if (withDomainPath) {
+           Assert.assertEquals(".foo.com", cookieMap.get("Domain"));

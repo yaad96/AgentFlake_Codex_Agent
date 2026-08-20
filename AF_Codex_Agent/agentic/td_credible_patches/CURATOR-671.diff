@@ -1,0 +1,48 @@
+diff --git a/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id b/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id
+new file mode 100644
+index 0000000..6818192
+--- /dev/null
++++ b/.mvn/.gradle-enterprise/gradle-enterprise-workspace-id
+@@ -0,0 +1 @@
++lkkakrwsnvbfjdx6ym5eeeddr4
+\ No newline at end of file
+diff --git a/curator-recipes/src/main/java/org/apache/curator/framework/recipes/leader/LeaderSelector.java b/curator-recipes/src/main/java/org/apache/curator/framework/recipes/leader/LeaderSelector.java
+index 854385a..9a5bfc5 100644
+--- a/curator-recipes/src/main/java/org/apache/curator/framework/recipes/leader/LeaderSelector.java
++++ b/curator-recipes/src/main/java/org/apache/curator/framework/recipes/leader/LeaderSelector.java
+@@ -76,6 +76,7 @@ public class LeaderSelector implements Closeable
+     // guarded by synchronization
+     private Future<?> ourTask = null;
+     private Thread ourThread = null;
++    private boolean requeuePending = false;
+ 
+     private volatile boolean hasLeadership;
+     private volatile String id = "";
+@@ -240,6 +241,7 @@ public class LeaderSelector implements Closeable
+     {
+         if ( ourTask == null && (state.get() == State.STARTED) )
+         {
++            requeuePending = false;
+             ourTask = executorService.submit(new Callable<Void>()
+             {
+                 @Override
+@@ -260,6 +262,10 @@ public class LeaderSelector implements Closeable
+ 
+             return true;
+         }
++        else if ( ourTask != null && (state.get() == State.STARTED) )
++        {
++            requeuePending = true;
++        }
+         return false;
+     }
+ 
+@@ -380,7 +386,7 @@ public class LeaderSelector implements Closeable
+     private synchronized void taskDone() {
+         ourTask = null;
+         ourThread = null;
+-        if (autoRequeue.get()) {
++        if (autoRequeue.get() || requeuePending) {
+             internalRequeue();
+         }
+     }

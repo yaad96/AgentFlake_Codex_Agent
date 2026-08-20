@@ -1,0 +1,32 @@
+# Per-run data trees: data/, data_td_credible/, data_od_mahbub_5/ and any
+# future data_*. Large, regenerable run artefacts -- never push these.
+AF_Codex_Agent/data*/
+
+# Per-user generated run summary
+AF_Codex_Agent/Complete?Containers?Summary.csv
+
+# FlakyDoctor runtime artifacts — cloned subject projects and per-run outputs
+FlakyDoctor/projects/
+FlakyDoctor/outputs/
+FlakyDoctor/install_*.csv
+
+# Python bytecode caches — auto-generated, must never be committed
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS Finder metadata — purely Finder UI state, no code value
+.DS_Store
+
+# VS Code workspace settings — local editor state
+.vscode/
+
+# Claude Code session state — local-only, must not be committed
+.claude/
+
+# Local API keys
+AF_Codex_Agent/.anthropic_api_key
+
+# Local Python virtual environment
+.venv/

@@ -1,0 +1,82 @@
+diff --git a/core/build/test/data/dfs/name1/current/VERSION b/core/build/test/data/dfs/name1/current/VERSION
+new file mode 100644
+index 0000000..b392e6c
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 16:52:29 UTC 2026
++namespaceID=1819021411
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-338259261-172.17.0.2-1785516749272
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..7ac9ef1
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..5fe3f0f
+Binary files /dev/null and b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..b341811
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++4a49064f39900935f6b41064f9d1837b *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name1/current/seen_txid b/core/build/test/data/dfs/name1/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name1/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/build/test/data/dfs/name2/current/VERSION b/core/build/test/data/dfs/name2/current/VERSION
+new file mode 100644
+index 0000000..b392e6c
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/VERSION
+@@ -0,0 +1,7 @@
++#Fri Jul 31 16:52:29 UTC 2026
++namespaceID=1819021411
++clusterID=testClusterID
++cTime=0
++storageType=NAME_NODE
++blockpoolID=BP-338259261-172.17.0.2-1785516749272
++layoutVersion=-60
+diff --git a/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001
+new file mode 100644
+index 0000000..7ac9ef1
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/edits_inprogress_0000000000000000001 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000
+new file mode 100644
+index 0000000..5fe3f0f
+Binary files /dev/null and b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000 differ
+diff --git a/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5 b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+new file mode 100644
+index 0000000..b341811
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/fsimage_0000000000000000000.md5
+@@ -0,0 +1 @@
++4a49064f39900935f6b41064f9d1837b *fsimage_0000000000000000000
+diff --git a/core/build/test/data/dfs/name2/current/seen_txid b/core/build/test/data/dfs/name2/current/seen_txid
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/core/build/test/data/dfs/name2/current/seen_txid
+@@ -0,0 +1 @@
++1
+diff --git a/core/src/test/java/org/apache/oozie/sla/TestSLACalculatorMemory.java b/core/src/test/java/org/apache/oozie/sla/TestSLACalculatorMemory.java
+index 3285153..68a82f8 100644
+--- a/core/src/test/java/org/apache/oozie/sla/TestSLACalculatorMemory.java
++++ b/core/src/test/java/org/apache/oozie/sla/TestSLACalculatorMemory.java
+@@ -115,7 +115,6 @@ public class TestSLACalculatorMemory extends XDataTestCase {
+             WorkflowJobBean workflow = new WorkflowJobBean();
+             workflow.setId(id);
+             workflow.setStatusStr("PREP");
+-            workflow.setStartTime(new Date());
+             insertList.add(workflow);
+         }
+         BatchQueryExecutor.getInstance().executeBatchInsertUpdateDelete(insertList, null, null);
