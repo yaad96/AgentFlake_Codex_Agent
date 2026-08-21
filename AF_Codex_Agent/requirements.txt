@@ -1,6 +1,6 @@
-# Python dependencies for AgentFlake Claude Agent.
+# Python dependencies for AgentFlake Codex Agent.
 #
-# Claude itself is run through the Claude Code CLI inside Docker. The host
+# Codex itself is run through the Codex CLI inside Docker. The host
 # Python process only needs the Java patch-application parser used by
 # AF_Codex_Agent/LLM Scripts/apply_fix.py.
 

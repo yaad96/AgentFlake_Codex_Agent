@@ -5,15 +5,15 @@ Edit this file to tune behaviour, set API keys, and choose model versions.
 Every value here can also be overridden at run time via CLI flags or env vars
 (env vars always take precedence over values set in this file):
 
-  CLI flags:  --max-iterations, --model   on run_agentic.py / agentic_claude_cli.py
-  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL, ANTHROPIC_API_KEY
+  CLI flags:  --max-iterations, --model   on run_agentic.py / agentic_codex_cli.py
+  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL, OPENAI_API_KEY
 """
 
 from pathlib import Path
 
 _CONFIG_DIR = Path(__file__).resolve().parent
 _PROJECT_DIR = _CONFIG_DIR.parent
-ANTHROPIC_API_KEY_FILE = _PROJECT_DIR / ".anthropic_api_key"
+OPENAI_API_KEY_FILE = _PROJECT_DIR / ".openai_api_key"
 
 def _read_secret_file(path: Path) -> str:
     try:
@@ -27,44 +27,39 @@ def _read_secret_file(path: Path) -> str:
 
 # ===========================================================================
 # API KEYS
-# Put your Anthropic key in AF_Codex_Agent/.anthropic_api_key, or export
-# ANTHROPIC_API_KEY in the shell. Environment variables always win.
+# Put your OpenAI key in AF_Codex_Agent/.openai_api_key, or export
+# OPENAI_API_KEY in the shell. Environment variables always win.
 # Leave the file empty to rely only on the environment variable.
 # ===========================================================================
 
-ANTHROPIC_API_KEY: str = _read_secret_file(ANTHROPIC_API_KEY_FILE)   # "sk-ant-..."  — used by all claude-* models
-OPENAI_API_KEY: str    = ""   # unused by the Claude CLI pipeline
+OPENAI_API_KEY: str = _read_secret_file(OPENAI_API_KEY_FILE)   # "sk-..." 
 
 
 # ===========================================================================
 # MODEL VERSIONS
-# Canonical model IDs for each provider. run_agentic.py resolves short
-# aliases (e.g. "claude" → CLAUDE_MODELS["claude"]) using these dicts.
+# run_agentic.py resolves short aliases (e.g. "codex" →
+# CODEX_MODELS["codex"]) using this dict.
 # Update the IDs here when a new model version is released.
 # ===========================================================================
 
-CLAUDE_MODELS: dict = {
-    # short alias          → full Anthropic model ID
-    "claude":              "claude-sonnet-4-6",   # default alias
-    "claude-sonnet":       "claude-sonnet-4-6",
-    "sonnet":              "claude-sonnet-4-6",
-    "claude-opus":         "claude-opus-4-7",
-    "opus":                "claude-opus-4-7",
-    "haiku":               "claude-haiku-4-5-20251001",
+CODEX_MODELS: dict = {
+    # short alias      → model id passed to `codex exec --model`
+    "codex":           "gpt-5.4",          # default alias
+    "gpt-5.4":         "gpt-5.4",
+    "gpt-5.1-codex":   "gpt-5.1-codex",
+    "gpt-5-codex":     "gpt-5-codex",
 }
+# Unknown values are passed through to `codex --model` unchanged rather than
+# rejected: the set of models an account can use changes over time and is
+# authoritatively listed by `codex models`. A hard allow-list here would
+# silently block a newly released model.
 
-OPENAI_MODELS: dict = {
-    # short alias          → full OpenAI model ID
-    "openai":              "gpt-4o",              # default OpenAI alias
-    "gpt-4o":              "gpt-4o",
-    "gpt-4o-mini":         "gpt-4o-mini",
-    "gpt-4.1":             "gpt-4.1",
-    "gpt-4.1-mini":        "gpt-4.1-mini",
-}
+# Reasoning effort forwarded via `-c model_reasoning_effort=...`.
+# One of: "minimal" | "low" | "medium" | "high".
+MODEL_REASONING_EFFORT: str = "high"
 
 # Default model used when --model is not passed on the CLI.
-# Must be a key in CLAUDE_MODELS or a full Anthropic model ID.
-DEFAULT_MODEL: str = "claude-sonnet-4-6"
+DEFAULT_MODEL: str = "gpt-5.4"
 
 
 # ===========================================================================

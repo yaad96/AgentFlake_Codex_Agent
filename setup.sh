@@ -12,7 +12,7 @@ FORCE_REBUILD_IMAGES=0
 usage() {
   cat <<'USAGE'
 Usage:
-  ANTHROPIC_API_KEY=sk-ant-... bash setup.sh [--build-images]
+  OPENAI_API_KEY=sk-... bash setup.sh [--build-images]
 
 Options:
   --build-images          Prebuild all Docker images that have Dockerfiles.
@@ -21,7 +21,7 @@ Options:
   -h, --help              Show this help.
 
 This script installs repo-local dependencies. It does not install Docker Desktop
-or create an Anthropic API key; provide those before running a repair.
+or create an OpenAI API key; provide those before running a repair.
 USAGE
 }
 
@@ -64,22 +64,22 @@ echo "[setup] installing Python dependencies"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$PROJECT_DIR/requirements.txt"
 
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "[setup] storing Anthropic API key in AF_Codex_Agent/.anthropic_api_key"
+if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+  echo "[setup] storing OpenAI API key in AF_Codex_Agent/.openai_api_key"
   umask 077
-  printf '%s\n' "$ANTHROPIC_API_KEY" > "$PROJECT_DIR/.anthropic_api_key"
-elif [[ ! -s "$PROJECT_DIR/.anthropic_api_key" ]]; then
+  printf '%s\n' "$OPENAI_API_KEY" > "$PROJECT_DIR/.openai_api_key"
+elif [[ ! -s "$PROJECT_DIR/.openai_api_key" ]]; then
   cat >&2 <<'MSG'
-ERROR: no Anthropic API key found.
+ERROR: no OpenAI API key found.
 
 Run setup like this:
-  ANTHROPIC_API_KEY=sk-ant-... bash setup.sh --build-images
+  OPENAI_API_KEY=sk-... bash setup.sh --build-images
 
-Or create AF_Codex_Agent/.anthropic_api_key yourself.
+Or create AF_Codex_Agent/.openai_api_key yourself.
 MSG
   exit 1
 else
-  echo "[setup] using existing AF_Codex_Agent/.anthropic_api_key"
+  echo "[setup] using existing AF_Codex_Agent/.openai_api_key"
 fi
 
 if [[ "$SKIP_DOCKER_CHECK" != "1" ]]; then
@@ -123,19 +123,19 @@ if [[ "$BUILD_IMAGES" == "1" ]]; then
     "flaky_base_jdk_17_id_cover_new|Dockerfile17.id"
   )
 
-  image_has_claude() {
-    docker run --rm --entrypoint sh "$1" -lc 'command -v claude >/dev/null 2>&1'
+  image_has_codex() {
+    docker run --rm --entrypoint sh "$1" -lc 'command -v codex >/dev/null 2>&1'
   }
 
   for entry in "${images[@]}"; do
     image="${entry%%|*}"
     dockerfile="${entry#*|}"
     if [[ "$FORCE_REBUILD_IMAGES" != "1" ]] && docker image inspect "$image" >/dev/null 2>&1; then
-      if image_has_claude "$image"; then
+      if image_has_codex "$image"; then
         echo "[setup] image ready: $image"
         continue
       fi
-      echo "[setup] image exists but lacks Claude CLI or cannot run: $image"
+      echo "[setup] image exists but lacks Codex CLI or cannot run: $image"
     elif [[ "$FORCE_REBUILD_IMAGES" == "1" ]] && docker image inspect "$image" >/dev/null 2>&1; then
       echo "[setup] force rebuilding image: $image"
     else
@@ -155,7 +155,7 @@ cat <<'DONE'
 [setup] done.
 
 Use the venv interpreter when running the tool:
-  .venv/bin/python AF_Codex_Agent/agentic/run_agentic.py <container> --runs 1 --models claude --max-iterations 5
+  .venv/bin/python AF_Codex_Agent/agentic/run_agentic.py <container> --runs 1 --models codex
 
 If local Docker images are stale, rebuild them with:
   bash setup.sh --build-images --force-rebuild-images

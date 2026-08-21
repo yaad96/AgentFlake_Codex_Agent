@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
 """
-agentic_claude_cli.py — "Claude Code agent" repair driver.
+agentic_codex_cli.py — "Codex agent" repair driver.
 
 Drop-in alternative to agentic_orchestrator.py for the agentic OD pipeline.
 Instead of an API conversation that calls submit_patch, this driver runs the
-*Claude Code CLI agent* autonomously inside the already-running tm_<container>
+*Codex CLI agent* autonomously inside the already-running tm_<container>
 docker container: the agent reproduces the failure, reads/edits the source in
 place, and self-verifies by re-running the reproduction command. Its edits are
 then captured as a unified diff and scored through the SAME external path the
 orchestrator uses (apply_fix.py -> agentic_verify.py), so the result is
 directly comparable to ReproFlake/FlakyDoctor.
 
-Invoked by run_agentic_od.sh (with AGENTIC_DRIVER=claude_cli) exactly like the
+Invoked by run_agentic_od.sh (with AGENTIC_DRIVER=codex_cli) exactly like the
 orchestrator:
 
-    python3 agentic_claude_cli.py <result_container> --docker-container <name>
-            [--model claude-sonnet-4-6] [--max-budget-usd N] [--max-iterations N]
+    python3 agentic_codex_cli.py <result_container> --docker-container <name>
+            [--model gpt-5.4] [--reasoning-effort high]
 
 Preconditions (all set up by run_agentic_od.sh steps 0-9.5):
     - data/<container>/run_<NN>/Flaky/            staged source tree (host bind-mount)
     - data/<container>/run_<NN>/Flaky.pristine/   clean snapshot for restore
     - data/<container>/run_<NN>/traces-flaky/mvn.log   initial failure log
     - container tm_<container> running with narrow binds for Flaky/,
-      claude_inputs/ (read-only), and claude_outputs/; protected Fixed and
-      forcing-reference trees are deliberately not visible to Claude.
-    - Claude Code CLI installed and ANTHROPIC_API_KEY available on the host.
+      codex_inputs/ (read-only), and codex_outputs/; protected Fixed and
+      forcing-reference trees are deliberately not visible to Codex.
+    - Codex CLI installed and OPENAI_API_KEY available on the host.
 
 Outputs under data/<container>/run_<NN>/:
-    claude_inputs/ contains prompt_user.txt, prompt_system.txt, and trace_config.json.
-    claude_outputs/ contains trial.ndjson, claude.stderr, patch.diff,
+    codex_inputs/ contains prompt_user.txt, prompt_system.txt, and trace_config.json.
+    codex_outputs/ contains trial.ndjson, codex.stderr, patch.diff,
     llm_response.json, apply_report.json, verify_after_fix.{log,verdict},
     run_verdict.txt, td_validation/{aggregate,calibration,composition}.json,
     thinking.txt, tool_calls.jsonl, usage.json, and meta.json.
@@ -443,7 +443,7 @@ FAILURE_LOG_DIR = {"od": "traces-flaky", "id": "traces-fail",
 SUPPORTED_TYPES = {"od", "id", "td", "nio"}
 
 
-TD_REPRO_REL = "td_repro.sh"          # written under read-only claude_inputs/
+TD_REPRO_REL = "td_repro.sh"          # written under read-only codex_inputs/
 TD_FORCING_SRC_REL = ".td_forcing_src.patch"
 # Keep in lock-step with agentic_verify.py's td branch.
 TD_SUREFIRE_TIMEOUT_S = os.environ.get("AGENTIC_TD_SUREFIRE_TIMEOUT_S", "900").strip()
@@ -491,7 +491,7 @@ def _forcing_source_only(patch_text: str) -> str:
 
 def install_td_repro_helper(base: Path, inputs: Path,
                             module: str, victim: str) -> bool:
-    """Install the public TD reproduction harness under ``claude_inputs``.
+    """Install the public TD reproduction harness under ``codex_inputs``.
 
     Without this the agent is handed `mvn surefire:test` on the BARE victim in
     /app/work/Flaky — but a TD victim PASSES there by definition; it only fails
@@ -522,7 +522,7 @@ def install_td_repro_helper(base: Path, inputs: Path,
 # applies the public forcing there, compiles cleanly, and runs the victim.
 set -euo pipefail
 FLAKY=/app/work/Flaky
-FORCING=/app/work/claude_inputs/{TD_FORCING_SRC_REL}
+FORCING=/app/work/codex_inputs/{TD_FORCING_SRC_REL}
 MODULE={shlex.quote(module)}
 VICTIM={shlex.quote(victim)}
 MVNOPTS="{MVNOPTS_TD}"
@@ -606,7 +606,7 @@ def repro_command(test_type: str, module: str, polluter: str, victim: str) -> st
         # td_repro.sh applies the FlakyCodeChange forcing over the current edits,
         # runs the victim, and restores the forced files.
         return (
-            f"bash /app/work/claude_inputs/{TD_REPRO_REL}   # uses a clean "
+            f"bash /app/work/codex_inputs/{TD_REPRO_REL}   # uses a clean "
             f"disposable copy, applies the timing forcing, recompiles, and runs "
             f"the victim under it"
         )
@@ -686,11 +686,14 @@ to mask a real bug, or refactor the test. Success = the project compiles AND
 the victim test passes under the exact reproduction command below.
 
 {type_note}You work with your own tools (there is no submit_patch / get_code tool):
-  - Use Read to inspect the victim test, the polluter test (if any), and any
-    related source code you need.
-  - Use Bash to run the reproduction command and observe the result.
-  - Use Edit to make the minimal source change in place. Do NOT print a diff —
-    edit the files directly; your change is captured from git afterwards.
+  - Read the victim test, the polluter test (if any), and any related source
+    files you need.
+  - Run the reproduction command in the shell and observe the real result.
+    Never conclude from reasoning alone that the test now passes.
+  - Apply the minimal source change directly to the files on disk. Do NOT
+    print a diff or a patch as your answer and do NOT write a patch file —
+    your change is captured from the working tree afterwards, so an edit that
+    only exists in your message counts as no fix at all.
 
 Reproduction / self-verification commands (run them from the project root, which
 is your current directory). ALWAYS run the recompile step after editing source —
@@ -739,7 +742,7 @@ Module:     {module}
 
 
 def log(msg: str) -> None:
-    print(f"[claude-cli] {msg}", flush=True)
+    print(f"[codex-cli] {msg}", flush=True)
 
 
 def run(cmd, **kw):
@@ -793,7 +796,7 @@ def _path_snapshot(path: Path, limit: int = 12) -> str:
 def _reclaim_container_path(docker_container: str, container_path: str) -> str:
     """Make a bind-mounted container path removable by the host user.
 
-    Maven/Claude run as root inside Docker and can leave root-owned target/
+    Maven/Codex run as root inside Docker and can leave root-owned target/
     files under the bind mount. On Linux, host-side shutil.rmtree cannot remove
     those files until ownership/mode are repaired from inside the container.
     """
@@ -936,7 +939,7 @@ SIMULATED_AGENT_ENV = "AGENTIC_SIMULATED_AGENT"
 
 def run_simulated_agent(docker_container: str, base: Path, output_rel: str,
                         fixture_dir: Path) -> int:
-    """Replay a recorded agent instead of calling the Claude API. Zero cost.
+    """Replay a recorded agent instead of calling the Codex API. Zero cost.
 
     The seam is deliberately placed where the real agent's ONLY durable effect
     is: edits to /app/work/Flaky. Everything downstream -- patch capture, the
@@ -965,7 +968,7 @@ def run_simulated_agent(docker_container: str, base: Path, output_rel: str,
     if patch_text.strip():
         # Stage inside output_rel, NOT the run dir root: step 10 restarts the
         # container with a ground-truth-free mount set (only Flaky/,
-        # claude_inputs/, claude_outputs/), so the run dir root is not visible
+        # codex_inputs/, codex_outputs/), so the run dir root is not visible
         # from inside the container.
         staged = out_dir / ".simulated_agent.patch"
         staged.write_text(patch_text, encoding="utf-8")
@@ -991,13 +994,17 @@ def run_simulated_agent(docker_container: str, base: Path, output_rel: str,
         shutil.copy2(stream_src, out_dir / "trial.ndjson")
     else:
         (out_dir / "trial.ndjson").write_text("\n".join(json.dumps(rec) for rec in (
-            {"type": "assistant", "message": {"content": [
-                {"type": "thinking", "thinking": f"simulated agent: {fixture_dir.name}"}]}},
-            {"type": "result", "usage": {}, "total_cost_usd": 0.0, "modelUsage": {},
-             "num_turns": 0, "duration_ms": 0, "is_error": False,
-             "subtype": "simulated"},
+            {"type": "thread.started", "thread_id": "simulated"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "sim-reasoning-0", "type": "reasoning",
+                "text": f"simulated agent: {fixture_dir.name}"}},
+            {"type": "turn.completed", "usage": {
+                "input_tokens": 0, "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0, "output_tokens": 0,
+                "reasoning_output_tokens": 0}},
         )) + "\n", encoding="utf-8")
-    (out_dir / "claude.stderr").write_text("", encoding="utf-8")
+    (out_dir / "codex.stderr").write_text("", encoding="utf-8")
 
     rc_file = fixture_dir / "exit_code"
     try:
@@ -1007,79 +1014,108 @@ def run_simulated_agent(docker_container: str, base: Path, output_rel: str,
 
 
 def run_agent_in_container(docker_container: str, model: str,
-                           max_budget_usd, max_turns,
-                           input_rel: str, output_rel: str) -> int:
-    """docker exec the Claude Code agent inside /app/work/Flaky."""
-    budget = (f"--max-budget-usd {shlex.quote(str(max_budget_usd))} "
-              if max_budget_usd else "")
+                           reasoning_effort, max_turns,
+                           input_rel: str, output_rel: str) -> tuple[int, int]:
+    """docker exec the Codex agent inside /app/work/Flaky.
+
+    Returns (exit_code, wall_clock_ms). The agent edits the checkout in place;
+    its change is captured from git afterwards, so nothing here depends on the
+    agent reporting a patch.
+    """
     if max_turns:
-        try:
-            max_turns = int(max_turns)
-        except (TypeError, ValueError):
-            sys.exit(
-                "ERROR: --max-iterations/AGENTIC_MAX_ITERATIONS must be "
-                f"an integer, got {max_turns!r}")
-        if max_turns < 1:
-            sys.exit("ERROR: --max-iterations/AGENTIC_MAX_ITERATIONS must be >= 1")
-    turns = (f"--max-turns {max_turns} " if max_turns else "")
-    model_arg = shlex.quote(str(model))
+        # `codex exec` runs a single turn whose internal tool loop is unbounded,
+        # and Codex exposes no cost ceiling. Say so rather than silently
+        # dropping a limit the caller asked for. The effective bound is the
+        # container-side `timeout` below.
+        log(f"WARNING: --max-iterations/AGENTIC_MAX_ITERATIONS={max_turns} is "
+            "ignored: codex exec has no turn or budget cap. The effective "
+            f"bound is the {AGENT_TIMEOUT_S}s agent timeout.")
+
+    # Build the codex argv explicitly rather than with backslash line
+    # continuations: inside a Python f-string a trailing "\" would be eaten as a
+    # Python line continuation, silently joining the shell lines.
+    codex_flags = ["--model", shlex.quote(str(model))]
+    if reasoning_effort:
+        codex_flags += [
+            "-c", shlex.quote(f"model_reasoning_effort={reasoning_effort}")]
+    codex_flags += ["--dangerously-bypass-approvals-and-sandbox",
+                    "--skip-git-repo-check", "--json"]
+    flag_str = " ".join(codex_flags)
+
+    out = f"/app/work/{output_rel}"
     inner = f"""
 set -o pipefail
 export PATH="/root/.local/bin:$PATH"
-export CLAUDE_CONFIG_DIR="$(mktemp -d)"
+
+# Per-run Codex home. Isolates auth + session state, and — because Codex reads
+# AGENTS.md from $CODEX_HOME — lets the system prompt live OUTSIDE the
+# repository. An AGENTS.md written into Flaky/ would be picked up by the
+# `git diff` patch capture and contaminate every candidate patch.
+export CODEX_HOME="$(mktemp -d)"
+cp "/app/work/{input_rel}/prompt_system.txt" "$CODEX_HOME/AGENTS.md"
+
+: > {out}/codex.stderr
+
+# Non-interactive auth: a VM/container has no browser for `codex login`.
+printenv OPENAI_API_KEY | codex login --with-api-key >>{out}/codex.stderr 2>&1 || {{
+  echo "ERROR: 'codex login --with-api-key' failed" >>{out}/codex.stderr
+  exit 97
+}}
+
 cd /app/work/Flaky
-timeout -k 30s {AGENT_TIMEOUT_S}s claude -p "$(cat /app/work/{input_rel}/prompt_user.txt)" \
-  --model {model_arg} \
-  --append-system-prompt "$(cat /app/work/{input_rel}/prompt_system.txt)" \
-  --permission-mode bypassPermissions \
-  --bare \
-  --output-format stream-json --verbose --include-partial-messages \
-  {turns}{budget}> /app/work/{output_rel}/trial.ndjson 2> /app/work/{output_rel}/claude.stderr
+# --dangerously-bypass-approvals-and-sandbox: the Docker container IS the
+#   sandbox. Codex's own Landlock/seccomp layer is redundant here and can
+#   break Maven when nested inside Docker.
+# --skip-git-repo-check: the driver deletes Flaky/.git and keeps the baseline
+#   repo at an external GIT_DIR, so the agent's cwd is deliberately not a repo.
+timeout -k 30s {AGENT_TIMEOUT_S}s codex exec "$(cat /app/work/{input_rel}/prompt_user.txt)" {flag_str} > {out}/trial.ndjson 2>> {out}/codex.stderr
 """
-    # Auth for the in-container `claude` CLI. Prefer an explicit env export;
-    # otherwise fall back to AF_Codex_Agent/.anthropic_api_key via
-    # agentic_config.ANTHROPIC_API_KEY. Without this the agent runs UNAUTHENTICATED
-    # (apiKeySource:none -> "Not logged in") and silently emits an empty patch
-    # that is then misscored as a FAILED repair. Fail closed with a clear
-    # message instead of burning a run.
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    # Auth for the in-container `codex` CLI. Prefer an explicit env export;
+    # otherwise fall back to AF_Codex_Agent/.openai_api_key via
+    # agentic_config.OPENAI_API_KEY. Without this the agent runs
+    # UNAUTHENTICATED and silently emits an empty patch that is then misscored
+    # as a FAILED repair. Fail closed with a clear message instead of burning
+    # a run.
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
         try:
-            from agentic_config import ANTHROPIC_API_KEY as _CFG_KEY  # type: ignore  # noqa: E402
+            from agentic_config import OPENAI_API_KEY as _CFG_KEY  # type: ignore  # noqa: E402
             api_key = (_CFG_KEY or "").strip()
         except Exception:
             api_key = ""
     if not api_key:
-        sys.exit("ERROR: no ANTHROPIC_API_KEY in the environment or "
-                 "AF_Codex_Agent/.anthropic_api_key — the Claude Code agent cannot "
+        sys.exit("ERROR: no OPENAI_API_KEY in the environment or "
+                 "AF_Codex_Agent/.openai_api_key — the Codex agent cannot "
                  "authenticate and would emit an empty patch scored as a "
-                 "false FAILED. Export ANTHROPIC_API_KEY or put the key in "
-                 "AF_Codex_Agent/.anthropic_api_key, then re-run.")
-    # IS_SANDBOX=1 lets --permission-mode bypassPermissions run as root inside
-    # the container (claude otherwise refuses bypass under root/sudo).
+                 "false FAILED. Export OPENAI_API_KEY or put the key in "
+                 "AF_Codex_Agent/.openai_api_key, then re-run.")
     cmd = ["docker", "exec",
-           "-e", f"ANTHROPIC_API_KEY={api_key}",
-           "-e", "IS_SANDBOX=1",
+           "-e", f"OPENAI_API_KEY={api_key}",
            docker_container, "bash", "-c", inner]
-    turn_msg = f", max_turns={max_turns}" if max_turns else ""
-    log(f"running Claude Code agent in {docker_container} (model={model}, "
-        f"timeout={AGENT_TIMEOUT_S}s{turn_msg})")
+    effort_msg = f", effort={reasoning_effort}" if reasoning_effort else ""
+    log(f"running Codex agent in {docker_container} (model={model}"
+        f"{effort_msg}, timeout={AGENT_TIMEOUT_S}s)")
+    started = time.monotonic()
     try:
         # Host-side timeout is a backstop only — the container-side `timeout`
-        # above is the real one (it actually kills claude inside the container,
+        # above is the real one (it actually kills codex inside the container,
         # whereas killing the `docker exec` client would orphan it). Give the
         # host a grace margin so the in-container kill fires first.
         proc = run(cmd, timeout=AGENT_TIMEOUT_S + 120)
-        return proc.returncode
+        rc = proc.returncode
     except subprocess.TimeoutExpired:
         log(f"agent exceeded {AGENT_TIMEOUT_S + 120}s host wall-clock — killed")
-        return 124
+        rc = 124
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    if rc == 97:
+        log("codex login failed inside the container — see codex.stderr")
+    return rc, elapsed_ms
 
 
 def quiesce_agent_processes(docker_container: str) -> None:
     """Stop orphaned agent/tool processes before inspecting or scoring edits.
 
-    Claude can finish while a background Bash/Maven/Java child remains alive.
+    Codex can finish while a background Bash/Maven/Java child remains alive.
     Such a child could keep changing the checkout during patch capture or read
     later evaluation state. Freeze then kill every process except the container
     init and this cleanup exec. A name allow-list is intentionally insufficient:
@@ -1230,11 +1266,43 @@ def compile_in_container(docker_container: str, test_type: str, module: str,
     }
 
 
-def parse_stream(ndjson_path: Path, steps: Path):
-    """Split the stream-json log into thinking / tool-call / usage views."""
-    thinking, tool_calls, usage = [], [], None
+def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
+    """Split the `codex exec --json` stream into thinking / tool-call / usage.
+
+    Event envelope (codex-rs/exec/src/exec_events.rs):
+        {"type": "thread.started",  "thread_id": "..."}
+        {"type": "turn.started"}
+        {"type": "turn.completed",  "usage": {...}}
+        {"type": "turn.failed",     "error": {"message": "..."}}
+        {"type": "item.started"|"item.updated"|"item.completed", "item": {...}}
+        {"type": "error",           "message": "..."}
+
+    Items carry a stable ``id`` and are re-emitted as they progress, so they are
+    collapsed by id (last write wins) rather than appended per event — otherwise
+    a single command would be counted once per lifecycle event. Items that only
+    ever reached ``item.started`` are still kept: when the agent is killed by
+    the timeout, the in-flight command is exactly the evidence worth having.
+    """
+    TOOL_TYPES = {"command_execution", "file_change", "mcp_tool_call",
+                  "web_search", "dynamic_tool_call"}
+
+    items: dict = {}        # item id -> latest payload
+    order: list = []        # first-seen order of item ids
+    usage = {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+    }
+    num_turns = 0
+    is_error = False
+    errors: list = []
+    thread_id = None
+
     if ndjson_path.is_file():
-        for line in ndjson_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in ndjson_path.read_text(
+                encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -1245,45 +1313,95 @@ def parse_stream(ndjson_path: Path, steps: Path):
             if not isinstance(rec, dict):
                 continue
             rtype = rec.get("type")
-            # incremental thinking deltas
-            ev = rec.get("event") or {}
-            if not isinstance(ev, dict):
-                ev = {}
-            delta = ev.get("delta") or {}
-            if not isinstance(delta, dict):
-                delta = {}
-            if delta.get("type") == "thinking_delta" and delta.get("thinking"):
-                thinking.append(delta["thinking"])
-            # complete assistant message blocks (thinking + tool_use)
-            if rtype == "assistant":
-                message = rec.get("message") or {}
-                if not isinstance(message, dict):
-                    message = {}
-                for blk in (message.get("content") or []):
-                    if not isinstance(blk, dict):
-                        continue
-                    if blk.get("type") == "thinking" and blk.get("thinking"):
-                        thinking.append(blk["thinking"])
-                    elif blk.get("type") == "tool_use":
-                        tool_calls.append({"name": blk.get("name"),
-                                           "input": blk.get("input")})
-            if rtype == "result":
-                usage = {
-                    "usage": rec.get("usage"),
-                    "total_cost_usd": rec.get("total_cost_usd"),
-                    "modelUsage": rec.get("modelUsage"),
-                    "num_turns": rec.get("num_turns"),
-                    "duration_ms": rec.get("duration_ms"),
-                    "is_error": rec.get("is_error"),
-                    "subtype": rec.get("subtype"),
+
+            if rtype == "thread.started":
+                thread_id = rec.get("thread_id") or thread_id
+
+            elif rtype == "turn.completed":
+                num_turns += 1
+                blob = rec.get("usage") or {}
+                if isinstance(blob, dict):
+                    for key in usage:
+                        try:
+                            usage[key] += int(blob.get(key) or 0)
+                        except (TypeError, ValueError):
+                            pass
+
+            elif rtype == "turn.failed":
+                is_error = True
+                err = rec.get("error") or {}
+                errors.append(str(err.get("message") or err) if isinstance(err, dict)
+                              else str(err))
+
+            elif rtype == "error":
+                is_error = True
+                errors.append(str(rec.get("message") or "unspecified codex error"))
+
+            elif rtype in ("item.started", "item.updated", "item.completed"):
+                item = rec.get("item") or {}
+                if not isinstance(item, dict):
+                    continue
+                # Fall back to a positional key if an item ever lacks an id, so
+                # unidentified items are still recorded instead of colliding.
+                key = item.get("id") or f"_anon_{len(order)}"
+                if key not in items:
+                    order.append(key)
+                items[key] = item
+
+    thinking: list = []
+    tool_calls: list = []
+    for key in order:
+        item = items.get(key) or {}
+        itype = item.get("type")
+        if itype == "reasoning":
+            text = item.get("text")
+            if text:
+                thinking.append(text)
+        elif itype in TOOL_TYPES:
+            if itype == "command_execution":
+                payload = {
+                    "command": item.get("command"),
+                    "status": item.get("status"),
+                    "exit_code": item.get("exit_code"),
                 }
-    (steps / "thinking.txt").write_text("".join(thinking), encoding="utf-8")
+            elif itype == "file_change":
+                payload = {
+                    "changes": item.get("changes"),
+                    "status": item.get("status"),
+                }
+            elif itype == "mcp_tool_call":
+                payload = {
+                    "server": item.get("server"),
+                    "tool": item.get("tool"),
+                    "arguments": item.get("arguments"),
+                    "status": item.get("status"),
+                }
+            else:
+                payload = {k: v for k, v in item.items()
+                           if k not in ("id", "type")}
+            tool_calls.append({"name": itype, "input": payload})
+
+    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+    usage_doc = {
+        "usage": usage,
+        "num_turns": num_turns,
+        # Codex does not report a turn duration, so this is the driver's
+        # wall-clock measurement around the `docker exec`.
+        "duration_ms": wall_ms,
+        "is_error": is_error,
+        "error": "; ".join(errors) if errors else None,
+        "thread_id": thread_id,
+        "subtype": "codex-exec",
+    }
+
+    (steps / "thinking.txt").write_text(
+        "\n\n".join(thinking), encoding="utf-8")
     with (steps / "tool_calls.jsonl").open("w", encoding="utf-8") as f:
         for tc in tool_calls:
             f.write(json.dumps(tc) + "\n")
     (steps / "usage.json").write_text(
-        json.dumps(usage or {}, indent=2), encoding="utf-8")
-    return len(thinking), len(tool_calls), usage
+        json.dumps(usage_doc, indent=2), encoding="utf-8")
+    return len(thinking), len(tool_calls), usage_doc
 
 
 def _oracle_outcome_dict(outcome) -> dict:
@@ -1660,17 +1778,39 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("container")
     ap.add_argument("--docker-container")
-    ap.add_argument("--model", default="claude-sonnet-4-6")
-    ap.add_argument("--max-budget-usd", default=None)
+    ap.add_argument("--model", default=None,
+                    help="model id passed to `codex exec --model` "
+                         "(default: agentic_config.DEFAULT_MODEL)")
+    ap.add_argument("--reasoning-effort", default=None,
+                    choices=["minimal", "low", "medium", "high"],
+                    help="forwarded as -c model_reasoning_effort "
+                         "(default: agentic_config.MODEL_REASONING_EFFORT)")
     ap.add_argument("--max-iterations", type=int, default=None,
-                    help="mapped to Claude Code --max-turns for this CLI driver")
+                    help="accepted for compatibility; codex exec has no "
+                         "turn cap, so this is logged and ignored")
     ap.add_argument("--verify-pass-runs", type=int, default=None,
                     help=f"extra passing verification runs required after the "
                          f"first pass (default: {VERIFY_PASS_RUNS})")
     ap.add_argument("--cli-timeout-s", type=int, default=None,
-                    help=f"wall-clock cap in seconds for Claude Code "
+                    help=f"wall-clock cap in seconds for Codex "
                          f"(default: {AGENT_TIMEOUT_S})")
     args = ap.parse_args()
+
+    # Model / reasoning-effort defaults come from agentic_config so a single
+    # edit there changes every entry point.
+    if not args.model:
+        try:
+            from agentic_config import DEFAULT_MODEL as _DEF_MODEL  # type: ignore  # noqa: E402
+        except Exception:
+            _DEF_MODEL = "gpt-5.4"
+        args.model = os.environ.get("AGENTIC_MODEL", "").strip() or _DEF_MODEL
+    if not args.reasoning_effort:
+        try:
+            from agentic_config import MODEL_REASONING_EFFORT as _DEF_EFFORT  # type: ignore  # noqa: E402
+        except Exception:
+            _DEF_EFFORT = "high"
+        args.reasoning_effort = (
+            os.environ.get("AGENTIC_REASONING_EFFORT", "").strip() or _DEF_EFFORT)
 
     if args.verify_pass_runs is not None:
         VERIFY_PASS_RUNS = args.verify_pass_runs
@@ -1686,18 +1826,18 @@ def main():
         sys.exit(f"ERROR: container '{container}' not in test_config.csv")
     test_type = (row.get("test_type") or "").strip().lower()
     if test_type not in SUPPORTED_TYPES:
-        sys.exit(f"ERROR: agentic_claude_cli supports {sorted(SUPPORTED_TYPES)} "
+        sys.exit(f"ERROR: agentic_codex_cli supports {sorted(SUPPORTED_TYPES)} "
                  f"only (got '{test_type}').")
     module = (row.get("module") or ".").strip()
 
     base = container_run_dir(container)
     flaky = base / "Flaky"
-    inputs = base / "claude_inputs"
-    steps = base / "claude_outputs"
+    inputs = base / "codex_inputs"
+    steps = base / "codex_outputs"
     inputs.mkdir(parents=True, exist_ok=True)
     steps.mkdir(parents=True, exist_ok=True)
-    input_rel = "claude_inputs"
-    output_rel = "claude_outputs"
+    input_rel = "codex_inputs"
+    output_rel = "codex_outputs"
 
     log_dir = FAILURE_LOG_DIR.get(test_type, "traces-flaky")
     for p in (flaky, base / log_dir / "mvn.log"):
@@ -1705,8 +1845,9 @@ def main():
             sys.exit(f"ERROR: expected '{p}' (the launcher must run first)")
 
     # External workspace OUTSIDE the /app/work bind mount. The agent runs with
-    # bypassPermissions inside /app/work, so anything kept there (a Flaky-local
-    # .git, the launcher's Flaky.pristine) can be deleted by the agent. Keeping
+    # unrestricted filesystem access inside /app/work, so anything kept there
+    # (a Flaky-local .git, the launcher's Flaky.pristine) can be deleted by the
+    # agent. Keeping
     # the git metadata and a baseline copy here makes capture + restore robust
     # no matter what the agent does to /app/work.
     ext = Path(tempfile.mkdtemp(prefix=f"agentcli_{container}_"))
@@ -1725,7 +1866,7 @@ def main():
         if install_td_repro_helper(
                 base, inputs, module, (row.get("flaky_test") or "").strip()):
             log(f"installed TD repro harness at "
-                f"/app/work/claude_inputs/{TD_REPRO_REL} "
+                f"/app/work/codex_inputs/{TD_REPRO_REL} "
                 "(disposable clean compile + forced victim run)")
         else:
             sys.exit("ERROR: could not install the TD repro harness — "
@@ -1756,9 +1897,10 @@ def main():
             f"call; everything after the agent runs for real")
         agent_rc = run_simulated_agent(
             docker_container, base, output_rel, Path(simulated))
+        agent_wall_ms = 0
     else:
-        agent_rc = run_agent_in_container(
-            docker_container, args.model, args.max_budget_usd, max_turns,
+        agent_rc, agent_wall_ms = run_agent_in_container(
+            docker_container, args.model, args.reasoning_effort, max_turns,
             input_rel, output_rel)
     log(f"agent exit code: {agent_rc}")
     try:
@@ -1767,12 +1909,12 @@ def main():
         sys.exit(f"ERROR: {exc} — refusing to capture or validate a tree that "
                  "may still be changing.")
 
-    # claude_outputs was writable during the agent turn.  Remove every
+    # codex_outputs was writable during the agent turn.  Remove every
     # evaluator-owned terminal artifact before trusting or producing evidence;
     # otherwise an agent-precreated PASSED file could survive a later driver
     # crash and be mistaken for a completed evaluation.
     reclaim_error = _reclaim_container_path(
-        docker_container, "/app/work/claude_outputs")
+        docker_container, "/app/work/codex_outputs")
     if reclaim_error:
         sys.exit("ERROR: could not reclaim evaluator output paths after the "
                  f"agent turn: {reclaim_error}")
@@ -1835,7 +1977,7 @@ def main():
     verdict_path = steps / "verify_after_fix.verdict"
     result_path = steps / "verify_after_fix.result.json"
     validation_dir = steps / "td_validation"
-    # claude_outputs is writable during the agent turn. Do not trust a
+    # codex_outputs is writable during the agent turn. Do not trust a
     # pre-created td_validation symlink/directory as the destination for
     # protected oracle material or authoritative evidence.
     if validation_dir.is_symlink():
@@ -2217,7 +2359,7 @@ def main():
             # B/P/F/FP and composed candidates stay in the external host-only
             # workspace.  Candidate-controlled Maven/test code never receives
             # a bind mount containing a reference tree.  A single disposable
-            # execution copy is exposed beneath claude_outputs only while its
+            # execution copy is exposed beneath codex_outputs only while its
             # own command is running.
             oracle_work = ext / "oracle_work"
             oracle_work.mkdir(parents=True)
@@ -2685,11 +2827,12 @@ def main():
         f"({validation_reason})")
 
     # ---- parse logs --------------------------------------------------------
-    n_think, n_tools, usage = parse_stream(steps / "trial.ndjson", steps)
+    n_think, n_tools, usage = parse_stream(
+        steps / "trial.ndjson", steps, wall_ms=agent_wall_ms)
     log(f"parsed stream: thinking_chunks={n_think} tool_calls={n_tools}")
 
-    # ---- write Claude metadata into the canonical output folder -------------
-    artifact_names = ["trial.ndjson", "claude.stderr", "patch.diff",
+    # ---- write Codex metadata into the canonical output folder -------------
+    artifact_names = ["trial.ndjson", "codex.stderr", "patch.diff",
                       "llm_response.json", "apply_report.json",
                       "verify_after_fix.log", "verify_after_fix.verdict",
                       "verify_after_fix.result.json", "run_verdict.txt",
@@ -2725,7 +2868,7 @@ def main():
         "confirm_runs": confirm_runs,
         "patch_bytes": len(diff),
         "usage": usage,
-        "input_dir": "../claude_inputs",
+        "input_dir": "../codex_inputs",
         "artifact_dir": ".",
         "artifacts": artifacts,
     }, indent=2), encoding="utf-8")

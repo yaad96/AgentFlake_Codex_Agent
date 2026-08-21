@@ -4,16 +4,16 @@ run_agentic_pass_at_k.py — pass@k harness for the agentic pipeline.
 
 Direct counterpart to TraceMop Scripts/run_pass_at_k.py, adapted for:
   - Per-type entry points under `agentic/` (run_agentic_<type>.sh)
-  - Claude CLI models only.
+  - Codex CLI models only.
   - Per-run archive layout that includes the agentic conversation
-    transcript + per-iteration log produced by agentic_claude_cli.py
+    transcript + per-iteration log produced by agentic_codex_cli.py
   - Reusing the existing CSV writer / pass@k metric so the agentic
     Complete Containers Summary stays joinable with non-agentic runs
 
 Usage:
   ./run_agentic_pass_at_k.py <container> [--runs 3] [--max-iterations 10]
-                             [--model claude-sonnet-4-6]
-                             [--max-budget-usd 0.50] [--verify-pass-runs 10]
+                             [--model gpt-5.4]
+                             [--verify-pass-runs 10]
                              [--cli-timeout-s 2400] [--force-rebuild-image]
 
 Run output layout:
@@ -52,14 +52,14 @@ TYPE_TO_SCRIPT = {
     "nio": SCRIPT_DIR / "run_agentic_nio.sh",
 }
 
-# Claude CLI mode only supports Claude model IDs.
+# Codex CLI mode only supports Codex model IDs.
 def _api_key_var(model_id: str) -> str:
     key = (model_id or "").strip().lower()
-    if not key.startswith("claude"):
+    if not key.startswith("codex"):
         sys.exit(
-            f"ERROR: Claude CLI mode supports only Claude models; got '{model_id}'."
+            f"ERROR: Codex CLI mode supports only Codex models; got '{model_id}'."
         )
-    return "ANTHROPIC_API_KEY"
+    return "OPENAI_API_KEY"
 
 SENTINEL = ".run_complete"
 
@@ -292,12 +292,12 @@ def _attempt_result_files(validation_dirs):
 def read_validation_evidence(per_run_dir: Path, meta: dict | None = None):
     """Read the new TD validation evidence without modifying any artifact.
 
-    ``claude_outputs/td_validation`` is canonical.  The run-root location is
+    ``codex_outputs/td_validation`` is canonical.  The run-root location is
     also accepted so partially migrated runs remain reportable.  Per-attempt
     result files are preferred over inferred/configured counts; older runs fall
     back to the number of confirmations that were actually recorded in meta.
     """
-    steps = per_run_dir / "claude_outputs"
+    steps = per_run_dir / "codex_outputs"
     validation_dirs = []
     for path in (steps / "td_validation", per_run_dir / "td_validation"):
         if path.is_dir() and path not in validation_dirs:
@@ -402,7 +402,7 @@ def read_validation_evidence(per_run_dir: Path, meta: dict | None = None):
             archive_logs.extend(runs_dir.glob("attempt_[0-9][0-9].log"))
 
     # Per-attempt archives exist only when agentic_verify.py is invoked with
-    # --attempt, which agentic_claude_cli.py passes for td runs alone. Every
+    # --attempt, which agentic_codex_cli.py passes for td runs alone. Every
     # other type writes an aggregate but no archives, so requiring one per
     # attempt would compare 0 against N and fail every od/id/nio run closed.
     # Demand them when the writer promises them, or when a partial set is
@@ -456,7 +456,7 @@ def read_validation_evidence(per_run_dir: Path, meta: dict | None = None):
         for name, aliases in stat_aliases.items():
             stats[name] = _int_json_value(aggregate, aliases) or 0
 
-    # Legacy Claude metadata records only confirmations.  Count the initial run
+    # Legacy Codex metadata records only confirmations.  Count the initial run
     # only when its log exists, rather than reporting the configured target.
     if attempts == 0 and isinstance(meta, dict):
         confirmations = meta.get("confirm_runs")
@@ -498,13 +498,13 @@ def read_validation_evidence(per_run_dir: Path, meta: dict | None = None):
     }
 
 
-def parse_run(per_run_dir: Path, container, test_type, run_n, model="claude"):
+def parse_run(per_run_dir: Path, container, test_type, run_n, model="codex"):
     """Extract a single CSV row's worth of data from an agentic per-run
     folder. Returns a dict shaped to match parse_run in the non-agentic
     harness so downstream summary writers don't need to branch.
     """
-    steps = per_run_dir / "claude_outputs"
-    meta = safe_json(per_run_dir / "claude_outputs" / "meta.json") or {}
+    steps = per_run_dir / "codex_outputs"
+    meta = safe_json(per_run_dir / "codex_outputs" / "meta.json") or {}
     model = meta.get("model") or model
     run_verdict_file = steps / "run_verdict.txt"          # authoritative binary
     verdict_file = steps / "verify_after_fix.verdict"     # binary fallback
@@ -559,14 +559,21 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="claude"):
     apply_rep = safe_json(apply_file) or {}
     resp = safe_json(llm_resp) or {}
 
-    # Claude CLI writes usage.json as a wrapper object:
-    # {"usage": {...token fields...}, "duration_ms": ...}. The old
-    # orchestrator wrote token fields directly on llm_response.json["usage"].
+    # Codex CLI writes usage.json as a wrapper object:
+    # {"usage": {...token fields...}, "num_turns": N, "duration_ms": ...}.
+    # The old orchestrator wrote token fields directly on
+    # llm_response.json["usage"].
     usage_blob = safe_json(steps / "usage.json") or {}
     meta_usage = meta.get("usage") or {}
     usage = (resp.get("usage") or usage_blob.get("usage") or
              meta_usage.get("usage") or usage_blob or meta_usage or {})
+    # Codex reports `input_tokens` as the turn's full prompt size, with
+    # `cached_input_tokens` a subset of it — so they must NOT be summed or the
+    # cached portion is double counted. `cache_write_input_tokens` is billed
+    # separately and is additive. The legacy Anthropic-shaped keys are still
+    # read so archived runs keep parsing.
     in_tokens = ((usage.get("input_tokens") or 0)
+                 + (usage.get("cache_write_input_tokens") or 0)
                  + (usage.get("cache_creation_input_tokens") or 0)
                  + (usage.get("cache_read_input_tokens") or 0))
     out_tokens = usage.get("output_tokens") or 0
@@ -658,7 +665,7 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="claude"):
             fail_snippet = result.get("reason", "")[:200]
 
     # Aggregate tool usage into a compact "name:count; name:count" string.
-    # The old orchestrator wrote agentic_iterations.jsonl; Claude CLI writes
+    # The old orchestrator wrote agentic_iterations.jsonl; Codex CLI writes
     # one tool-use record per line in tool_calls.jsonl.
     tool_counts = {}
     for it in iterations:
@@ -777,7 +784,7 @@ CSV_COLS = [
 
 
 def collect_all_rows_on_disk(runs_root: Path, container: str,
-                             test_type: str, model: str = "claude") -> list:
+                             test_type: str, model: str = "codex") -> list:
     """Scan flat run_NN directories under data/<container>."""
     rows = []
     if not runs_root.is_dir():
@@ -908,23 +915,19 @@ def main():
     ap.add_argument("container")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--max-iterations", type=int, default=10,
-                    help="Claude Code max turns per run (default 10)")
-    ap.add_argument("--model", default="claude-sonnet-4-6",
-                    help="Claude model id passed to agentic_claude_cli.py")
-    ap.add_argument("--max-budget-usd", default=None,
-                    help="hard Claude Code spend cap per run")
+                    help="Codex max turns per run (default 10)")
+    ap.add_argument("--model", default="gpt-5.4",
+                    help="Codex model id passed to agentic_codex_cli.py")
     ap.add_argument("--verify-pass-runs", type=int, default=None,
                     help="extra passing verification runs required after the first pass")
     ap.add_argument("--cli-timeout-s", type=int, default=None,
-                    help="wall-clock cap in seconds for Claude Code")
+                    help="wall-clock cap in seconds for Codex")
     ap.add_argument("--force-rebuild-image", action="store_true",
                     help="rebuild the Docker image even if one already exists")
     args = ap.parse_args()
 
     # Optional per-run knobs, forwarded verbatim to the per-type shell script.
     script_flags = []
-    if args.max_budget_usd is not None:
-        script_flags += ["--max-budget-usd", str(args.max_budget_usd)]
     if args.verify_pass_runs is not None:
         script_flags += ["--verify-pass-runs", str(args.verify_pass_runs)]
     if args.cli_timeout_s is not None:
@@ -936,7 +939,7 @@ def main():
 
     api_key_var = _api_key_var(args.model)
     api_key = (os.environ.get(api_key_var) or
-               getattr(agentic_config, "ANTHROPIC_API_KEY", "") or "").strip()
+               getattr(agentic_config, "OPENAI_API_KEY", "") or "").strip()
     if not api_key:
         sys.exit(f"ERROR: {api_key_var} env var not set and no key found in config "
                  f"(required for model '{args.model}')")
@@ -967,7 +970,7 @@ def main():
         # Wipe dynamic outputs so this run can't be contaminated by stale
         # artefacts from the previous run (same rationale as the non-agentic
         # harness — see run_pass_at_k.py).
-        for stale in ("claude_inputs", "claude_outputs", "result",
+        for stale in ("codex_inputs", "codex_outputs", "result",
                       "traces-fixed", "traces-flaky", "traces-flakycc",
                       "traces-pass", "traces-fail"):
             stale_path = data_container_dir / stale
@@ -981,9 +984,9 @@ def main():
         env["KEEP_CONTAINER"] = "1"
         env["AGENTIC_MAX_ITERATIONS"] = str(args.max_iterations)
         env["AGENTIC_MODEL"] = args.model
-        env["AGENTIC_DRIVER"] = "claude_cli"
+        env["AGENTIC_DRIVER"] = "codex_cli"
         env["AGENTIC_RUN_LABEL"] = run_label
-        # Stream the Claude CLI driver's stdout live instead of block-buffering it
+        # Stream the Codex CLI driver's stdout live instead of block-buffering it
         # through this pipe, so [apply]/[verify] lines appear in real time.
         env["PYTHONUNBUFFERED"] = "1"
         env["AGENTIC_PYTHON"] = sys.executable
@@ -1009,7 +1012,7 @@ def main():
         # Normalise the public terminal artifact to the binary contract.  The
         # validator may retain INCOMPLETE internally, but reporting fails that
         # state closed and preserves its diagnostic evidence separately.
-        steps_dir = per_run_dir / "claude_outputs"
+        steps_dir = per_run_dir / "codex_outputs"
         steps_dir.mkdir(parents=True, exist_ok=True)
         run_verdict_file = steps_dir / "run_verdict.txt"
         legacy_verdict_file = steps_dir / "verify_after_fix.verdict"

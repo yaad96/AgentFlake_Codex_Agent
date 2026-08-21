@@ -1,6 +1,6 @@
-# Claude Agent Internals
+# Codex Agent Internals
 
-This project uses the Claude Code CLI as the repair agent for flaky-test
+This project uses the Codex CLI as the repair agent for flaky-test
 containers. The user-facing run manual is the top-level `README.md`; this file
 only explains what happens inside one run.
 
@@ -11,7 +11,7 @@ Run from the repository root:
 ```bash
 .venv/bin/python AF_Codex_Agent/agentic/run_agentic.py <container> \
   --runs 1 \
-  --models claude \
+  --models codex \
   --max-iterations 5
 ```
 
@@ -29,8 +29,8 @@ and routes to one of:
 
 The key is loaded in this order:
 
-1. `ANTHROPIC_API_KEY` from the shell.
-2. `AF_Codex_Agent/.anthropic_api_key`.
+1. `OPENAI_API_KEY` from the shell.
+2. `AF_Codex_Agent/.openai_api_key`.
 
 The key file is ignored by Git.
 
@@ -40,13 +40,13 @@ Each invocation creates the next run directory:
 
 ```text
 AF_Codex_Agent/data/<container>/run_<NN>/
-  claude_inputs/
+  codex_inputs/
     prompt_user.txt
     prompt_system.txt
     trace_config.json
-  claude_outputs/
+  codex_outputs/
     trial.ndjson
-    claude.stderr
+    codex.stderr
     thinking.txt
     tool_calls.jsonl
     usage.json
@@ -77,14 +77,14 @@ and `FlakyCodeChange/` are removed after completed `PASSED` or `FAILED` runs.
 1. The per-type shell script unzips the target project into
    `data/<container>/run_<NN>/`.
 2. It starts the Docker container as `tm_<container>`. For TD, the setup
-   container is replaced before Claude starts with narrow mounts for only the
+   container is replaced before Codex starts with narrow mounts for only the
    editable `Flaky/` tree, read-only prompt/reproduction inputs, writable
    outputs, and the Maven cache. Developer-fixed/reference trees are never
-   visible to Claude.
+   visible to Codex.
 3. It reproduces the flaky failure and writes the baseline log.
-4. `agentic_claude_cli.py` builds `prompt_user.txt` and `prompt_system.txt`.
-5. Claude Code runs inside Docker from `/app/work/Flaky`.
-6. The driver captures Claude's in-place edits as `claude_outputs/patch.diff`.
+4. `agentic_codex_cli.py` builds `prompt_user.txt` and `prompt_system.txt`.
+5. Codex runs inside Docker from `/app/work/Flaky`.
+6. The driver captures Codex's in-place edits as `codex_outputs/patch.diff`.
 7. The tree is restored from a protected baseline.
 8. `apply_fix.py` applies the patch.
 9. For TD, the evaluator privately builds and calibrates the four-tree semantic
@@ -94,7 +94,7 @@ and `FlakyCodeChange/` are removed after completed `PASSED` or `FAILED` runs.
 10. `agentic_verify.py` runs each official attempt using fresh Surefire XML (or
     strict text evidence when XML is unavailable) and writes the final verdict.
 
-The final verifier is authoritative. Claude's own self-verification is useful
+The final verifier is authoritative. Codex's own self-verification is useful
 for search, but it is not the final score.
 
 The public verdict contract is binary: `run_verdict.txt`,
@@ -102,34 +102,64 @@ The public verdict contract is binary: `run_verdict.txt`,
 contain only `PASSED` or `FAILED`. Infrastructure or insufficient evidence is
 recorded as an internal diagnostic and maps fail-closed to public `FAILED`.
 
-## Claude Command
+## Codex Command
 
 The driver runs this shape of command inside Docker:
 
 ```bash
-claude -p "$(cat /app/work/claude_inputs/prompt_user.txt)" \
-  --model claude-sonnet-4-6 \
-  --append-system-prompt "$(cat /app/work/claude_inputs/prompt_system.txt)" \
-  --permission-mode bypassPermissions \
-  --bare \
-  --output-format stream-json \
-  --verbose \
-  --include-partial-messages \
-  --max-turns "$AGENTIC_MAX_ITERATIONS" \
-  --max-budget-usd "$MAX_BUDGET_USD"
+export CODEX_HOME="$(mktemp -d)"
+cp /app/work/codex_inputs/prompt_system.txt "$CODEX_HOME/AGENTS.md"
+printenv OPENAI_API_KEY | codex login --with-api-key
+
+cd /app/work/Flaky
+codex exec "$(cat /app/work/codex_inputs/prompt_user.txt)" \
+  --model gpt-5.4 \
+  -c model_reasoning_effort=high \
+  --dangerously-bypass-approvals-and-sandbox \
+  --skip-git-repo-check \
+  --json
 ```
 
 Important details:
 
-- `--bare` keeps the run isolated from local Claude project memory.
-- `IS_SANDBOX=1` allows `bypassPermissions` inside the Docker container.
-- `CLAUDE_CONFIG_DIR` is set to a temporary directory for each run.
-- `AGENTIC_MAX_ITERATIONS` is passed to Claude Code as `--max-turns`.
-- `--max-budget-usd` is optional but recommended while testing; the flag is
-  threaded down from `run_agentic.py` and the `--max-budget-usd` argument is
-  omitted entirely when it is not set.
-- Usage details are stored in `claude_outputs/usage.json` and summarized by
+- **System prompt.** Codex has no `--append-system-prompt`. The system prompt is
+  written to `$CODEX_HOME/AGENTS.md`, which Codex reads as global instructions.
+  It deliberately does *not* go into `Flaky/AGENTS.md`: a file inside the
+  checkout would be picked up by the `git diff` patch capture and contaminate
+  every candidate patch.
+- **`CODEX_HOME`** is a fresh temporary directory per run, so auth and session
+  state never leak between containers.
+- **`--dangerously-bypass-approvals-and-sandbox`.** The Docker container *is*
+  the sandbox. Codex's own Landlock/seccomp layer is redundant here and can
+  break Maven when nested inside Docker.
+- **`--skip-git-repo-check`** is required, not optional. The driver deletes
+  `Flaky/.git` and keeps the baseline repository at an external `GIT_DIR` the
+  agent cannot see, so the agent's working directory is deliberately not a Git
+  repository — and `codex exec` refuses to start in one by default.
+- **Auth** uses `codex login --with-api-key` reading from stdin, because a VM or
+  container has no browser for the interactive `codex login` flow.
+- **No turn or cost cap.** `codex exec` runs a single turn whose internal tool
+  loop is unbounded, and Codex exposes no spend ceiling. `--max-iterations` is
+  still accepted for compatibility but is logged and ignored; the effective
+  bound on a run is `--cli-timeout-s` (enforced by `timeout` inside the
+  container).
+- Usage details are stored in `codex_outputs/usage.json` and summarized by
   `run_agentic_pass_at_k.py`.
+
+## Stream Artifacts
+
+`codex exec --json` emits JSON Lines to `codex_outputs/trial.ndjson`. The driver
+splits it into three views:
+
+| Artifact | Source |
+|---|---|
+| `thinking.txt` | `reasoning` items (**summaries**, not raw chain-of-thought) |
+| `tool_calls.jsonl` | `command_execution`, `file_change`, `mcp_tool_call`, `web_search` items |
+| `usage.json` | `turn.completed` usage totals + driver wall-clock |
+
+Note that `thinking.txt` holds reasoning *summaries*. OpenAI does not expose raw
+chain-of-thought, so this artifact is not directly comparable to the raw
+thinking traces captured by the Claude-based variant of this pipeline.
 
 ## Common Debug Flags
 
@@ -137,9 +167,8 @@ All optional; pass them to `run_agentic.py` (they are forwarded through
 `run_agentic_pass_at_k.py` to the per-type shell script and the CLI driver):
 
 ```bash
---cli-timeout-s 2400      # Claude Code wall-clock timeout
+--cli-timeout-s 2400      # Codex wall-clock timeout
 --verify-pass-runs 10     # extra successful verification runs required
---max-budget-usd 0.50     # hard Claude Code spend cap per run
 --force-rebuild-image     # rebuild the Docker image even if one exists
 ```
 

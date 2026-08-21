@@ -16,7 +16,7 @@ context to a private copy of a candidate.  Expected overlap, a missing semantic
 anchor, or an infrastructure problem is reported as ``INCOMPLETE``; it is never
 turned into a model ``FAILED`` verdict here.
 
-This file deliberately contains no Claude, Docker, Maven, or result-reporting
+This file deliberately contains no Codex, Docker, Maven, or result-reporting
 logic.  The driver can integrate it without giving the agent access to B/P/F/FP
 or to the resulting manifest.  Calibration execution is delegated to an
 injected runner so the protected evaluator can choose Docker, local processes,
