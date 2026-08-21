@@ -757,7 +757,7 @@ def main():
     report_root = _report_root(base, row, args.container_workdir)
     archive_dir = None
     if validation_attempt is not None:
-        archive_dir = steps_dir / "td_validation" / "runs"
+        archive_dir = steps_dir / "validation" / "runs"
         archive_dir.mkdir(parents=True, exist_ok=True)
         _ensure_archive_slot(archive_dir, validation_attempt)
 

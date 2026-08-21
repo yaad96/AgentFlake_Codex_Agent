@@ -52,13 +52,17 @@ TYPE_TO_SCRIPT = {
     "nio": SCRIPT_DIR / "run_agentic_nio.sh",
 }
 
-# Codex CLI mode only supports Codex model IDs.
 def _api_key_var(model_id: str) -> str:
-    key = (model_id or "").strip().lower()
-    if not key.startswith("codex"):
-        sys.exit(
-            f"ERROR: Codex CLI mode supports only Codex models; got '{model_id}'."
-        )
+    """Env var holding the credential for `model_id`.
+
+    This pipeline is single-provider, so the answer is always OPENAI_API_KEY.
+    There is deliberately no allow-list on the model id: Codex model slugs are
+    named `gpt-5.x`, not `codex-*`, and the set of usable models changes over
+    time (`codex debug models` is the authority). Gating on a name prefix here
+    only blocks valid models.
+    """
+    if not (model_id or "").strip():
+        sys.exit("ERROR: --model must not be empty")
     return "OPENAI_API_KEY"
 
 SENTINEL = ".run_complete"
@@ -75,7 +79,7 @@ COMPLETE_SUMMARY_COLS = [
     "validation_passes",
     "validation_failures", "validation_incomplete", "reason_code",
     "validation_reason_code", "evaluation_incomplete",
-    "temperature", "tools_used",
+    "reasoning_effort", "tools_used", "commands_run", "files_changed",
 ]
 
 
@@ -290,16 +294,21 @@ def _attempt_result_files(validation_dirs):
 
 
 def read_validation_evidence(per_run_dir: Path, meta: dict | None = None):
-    """Read the new TD validation evidence without modifying any artifact.
+    """Read the validation evidence without modifying any artifact.
 
-    ``codex_outputs/td_validation`` is canonical.  The run-root location is
+    ``codex_outputs/validation`` is canonical.  The run-root location is
     also accepted so partially migrated runs remain reportable.  Per-attempt
     result files are preferred over inferred/configured counts; older runs fall
     back to the number of confirmations that were actually recorded in meta.
     """
     steps = per_run_dir / "codex_outputs"
     validation_dirs = []
-    for path in (steps / "td_validation", per_run_dir / "td_validation"):
+    # "validation" is canonical. "td_validation" is the pre-rename name and is
+    # still accepted so runs completed before the rename stay reportable — the
+    # directory was never TD-specific, it holds the verdict evidence for every
+    # test type.
+    for path in (steps / "validation", per_run_dir / "validation",
+                 steps / "td_validation", per_run_dir / "td_validation"):
         if path.is_dir() and path not in validation_dirs:
             validation_dirs.append(path)
 
@@ -530,7 +539,7 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="codex"):
         verdict_source = "run_verdict.txt"
     if verdict_source == "default" and validation.get("verdict"):
         internal_verdict = validation["verdict"]
-        verdict_source = validation.get("aggregate_path") or "td_validation"
+        verdict_source = validation.get("aggregate_path") or "validation"
     if verdict_source == "default":
         value = _normalise_verdict(meta.get("verdict"))
         if value:
@@ -567,17 +576,24 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="codex"):
     meta_usage = meta.get("usage") or {}
     usage = (resp.get("usage") or usage_blob.get("usage") or
              meta_usage.get("usage") or usage_blob or meta_usage or {})
-    # Codex reports `input_tokens` as the turn's full prompt size, with
-    # `cached_input_tokens` a subset of it — so they must NOT be summed or the
-    # cached portion is double counted. `cache_write_input_tokens` is billed
-    # separately and is additive. The legacy Anthropic-shaped keys are still
-    # read so archived runs keep parsing.
-    in_tokens = ((usage.get("input_tokens") or 0)
-                 + (usage.get("cache_write_input_tokens") or 0)
-                 + (usage.get("cache_creation_input_tokens") or 0)
-                 + (usage.get("cache_read_input_tokens") or 0))
+    # Token totals come from usage.json when the driver computed them, so the
+    # artifact and this CSV cannot disagree. agentic_codex_cli derives
+    # billed_input_tokens = input + cache_write (NOT + cached, which is a
+    # subset of input and would be double counted). The legacy
+    # Anthropic-shaped keys are kept as a fallback so archived runs still
+    # parse.
+    if usage.get("billed_input_tokens") is not None:
+        in_tokens = usage.get("billed_input_tokens") or 0
+    else:
+        in_tokens = ((usage.get("input_tokens") or 0)
+                     + (usage.get("cache_write_input_tokens") or 0)
+                     + (usage.get("cache_creation_input_tokens") or 0)
+                     + (usage.get("cache_read_input_tokens") or 0))
     out_tokens = usage.get("output_tokens") or 0
-    total = in_tokens + out_tokens
+    total = usage.get("total_tokens") or (in_tokens + out_tokens)
+
+    # Codex-native activity counts (see agentic_codex_cli.parse_stream).
+    counts = usage_blob.get("counts") or {}
     duration_ms = (resp.get("duration_ms") or usage_blob.get("duration_ms") or
                    meta_usage.get("duration_ms") or 0)
     elapsed_llm = float(resp.get("elapsed_seconds") or
@@ -721,7 +737,26 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="codex"):
         "validation_artifact": validation.get("aggregate_path") or "",
         "fail_snippet": fail_snippet,
         "elapsed_total_seconds": round(elapsed_total, 1),
-        "agentic_iterations": len(iterations) or int(usage_blob.get("num_turns") or 0),
+        # Deliberately NOT called "agentic_iterations": there is no iteration
+        # loop to count. `codex exec` is a SINGLE turn with an unbounded
+        # internal tool loop, so turn count is always ~1 and is useless as an
+        # effort measure — what the agent DID is the meaningful unit. This is
+        # the total tool calls it made (commands + file edits + any MCP/web
+        # calls); `commands_run` and `files_changed` break it down.
+        #
+        # Archived orchestrator runs fall back to their own per-iteration log,
+        # where one logged iteration was likewise one agent step.
+        "agent_actions": (len(iterations)
+                          or int(counts.get("tool_calls") or 0)),
+        "commands_run": int(counts.get("commands") or 0),
+        "files_changed": int(counts.get("file_changes") or 0),
+        "reasoning_chunks": int(counts.get("reasoning_chunks") or 0),
+        "agent_messages": int(counts.get("agent_messages") or 0),
+        "codex_turns": int(counts.get("turns")
+                           or usage_blob.get("num_turns") or 0),
+        "reasoning_effort": meta.get("reasoning_effort") or "",
+        "agent_error": (usage_blob.get("error")
+                        or usage_blob.get("item_errors") or ""),
     }
 
 
@@ -769,7 +804,8 @@ CSV_COLS = [
     "container", "test_type", "model", "run", "verdict", "fail_category",
     "verdict_source", "reason_code", "validation_reason_code",
     "evaluation_incomplete",
-    "agentic_iterations",
+    "agent_actions", "commands_run", "files_changed",
+    "reasoning_chunks", "agent_messages", "codex_turns", "reasoning_effort",
     "input_tokens_total", "output_tokens_total", "total_tokens",
     "llm_finish_reason", "elapsed_llm_seconds", "elapsed_total_seconds",
     "apply_layer", "apply_path_rewritten", "apply_imports_inferred",
@@ -779,7 +815,7 @@ CSV_COLS = [
     "validation_incomplete", "validation_artifact",
     "verify_tests", "verify_failures", "verify_errors", "verify_skipped",
     "failure_markers",
-    "fail_snippet",
+    "fail_snippet", "agent_error",
 ]
 
 
@@ -848,8 +884,12 @@ def append_complete_summary(rows):
             "reason_code": r.get("reason_code", ""),
             "validation_reason_code": r.get("validation_reason_code", ""),
             "evaluation_incomplete": r.get("evaluation_incomplete", False),
-            "temperature": agentic_config.TEMPERATURE,
+            # Codex exposes no temperature; reasoning effort is the analogous
+            # control, so reporting a temperature here would be fiction.
+            "reasoning_effort": r.get("reasoning_effort", ""),
             "tools_used": r.get("tools_used", ""),
+            "commands_run": r.get("commands_run", 0),
+            "files_changed": r.get("files_changed", 0),
         })
 
     existing_header = []
@@ -914,10 +954,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("container")
     ap.add_argument("--runs", type=int, default=3)
-    ap.add_argument("--max-iterations", type=int, default=10,
-                    help="Codex max turns per run (default 10)")
-    ap.add_argument("--model", default="gpt-5.4",
-                    help="Codex model id passed to agentic_codex_cli.py")
+    ap.add_argument("--max-iterations", type=int, default=None,
+                    help="accepted for compatibility; codex exec has no turn "
+                         "cap, so this is logged and ignored (the effective "
+                         "bound is --cli-timeout-s)")
+    ap.add_argument("--model", default=agentic_config.DEFAULT_MODEL,
+                    help=f"Codex model id passed to agentic_codex_cli.py "
+                         f"(default: {agentic_config.DEFAULT_MODEL})")
+    ap.add_argument("--reasoning-effort", default=None,
+                    choices=list(agentic_config.REASONING_EFFORTS),
+                    help=f"reasoning effort for the run "
+                         f"(default: {agentic_config.MODEL_REASONING_EFFORT})")
     ap.add_argument("--verify-pass-runs", type=int, default=None,
                     help="extra passing verification runs required after the first pass")
     ap.add_argument("--cli-timeout-s", type=int, default=None,
@@ -982,8 +1029,11 @@ def main():
         pipeline_log = per_run_dir / "pipeline.log"
         env = os.environ.copy()
         env["KEEP_CONTAINER"] = "1"
-        env["AGENTIC_MAX_ITERATIONS"] = str(args.max_iterations)
+        if args.max_iterations is not None:
+            env["AGENTIC_MAX_ITERATIONS"] = str(args.max_iterations)
         env["AGENTIC_MODEL"] = args.model
+        if args.reasoning_effort:
+            env["AGENTIC_REASONING_EFFORT"] = args.reasoning_effort
         env["AGENTIC_DRIVER"] = "codex_cli"
         env["AGENTIC_RUN_LABEL"] = run_label
         # Stream the Codex CLI driver's stdout live instead of block-buffering it
@@ -1036,7 +1086,7 @@ def main():
         elif aggregate_state:
             internal_terminal = aggregate_state
             terminal_source = (validation_evidence.get("aggregate_path")
-                               or "td_validation")
+                               or "validation")
         elif meta_state:
             internal_terminal = meta_state
             terminal_source = "meta.json"
@@ -1075,7 +1125,7 @@ def main():
                 diagnostic_reason = ("orchestrator_nonzero_exit"
                                      if exit_code != 0
                                      else "missing_terminal_verdict")
-            validation_dir = steps_dir / "td_validation"
+            validation_dir = steps_dir / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
             orchestrator_result = validation_dir / "orchestrator_result.json"
             if not orchestrator_result.exists():
@@ -1107,7 +1157,7 @@ def main():
         # replacing it with the canonical public value.
         canonical_raw = (raw_run_verdict or "").strip()
         if raw_run_verdict is not None and canonical_raw != public_terminal:
-            validation_dir = steps_dir / "td_validation"
+            validation_dir = steps_dir / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
             internal_copy = validation_dir / "run_verdict.internal.txt"
             if not internal_copy.exists():

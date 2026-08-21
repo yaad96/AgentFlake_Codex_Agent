@@ -154,15 +154,15 @@ cleanup_container() {
   if (( rc != 0 )) \
       && [[ -f "$STEPS_OUT_DIR/run_verdict.txt" ]] \
       && [[ "$(tr -d '[:space:]' < "$STEPS_OUT_DIR/run_verdict.txt")" == "FAILED" ]] \
-      && [[ -f "$STEPS_OUT_DIR/td_validation/aggregate.json" ]] \
+      && [[ -f "$STEPS_OUT_DIR/validation/aggregate.json" ]] \
       && grep -Eq '"terminal_ready"[[:space:]]*:[[:space:]]*true' \
-           "$STEPS_OUT_DIR/td_validation/aggregate.json" \
+           "$STEPS_OUT_DIR/validation/aggregate.json" \
       && grep -Eq '"verdict"[[:space:]]*:[[:space:]]*"FAILED"' \
-           "$STEPS_OUT_DIR/td_validation/aggregate.json"; then
+           "$STEPS_OUT_DIR/validation/aggregate.json"; then
     completed_failed=1
   fi
   if (( rc != 0 && completed_failed == 0 )); then
-    mkdir -p "$STEPS_OUT_DIR/td_validation"
+    mkdir -p "$STEPS_OUT_DIR/validation"
     printf 'FAILED\n' > "$STEPS_OUT_DIR/run_verdict.txt"
     printf 'FAILED\n' > "$STEPS_OUT_DIR/verify_after_fix.verdict"
     {
@@ -181,7 +181,7 @@ cleanup_container() {
       printf '  "incomplete_attempts": 0,\n'
       printf '  "runs": []\n'
       printf '}\n'
-    } > "$STEPS_OUT_DIR/td_validation/aggregate.json"
+    } > "$STEPS_OUT_DIR/validation/aggregate.json"
   fi
   [[ "${KEEP_CONTAINER:-0}" == "1" ]] && return $rc
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
@@ -214,6 +214,16 @@ for d in Fixed FixedCodeChange FlakyCodeChange Flakym2; do
 done
 if (( need_step1 )); then
   ZIP_PATH="$REPROFLAKE_DIR/data/${ZIP}.zip"
+  # A cached archive is only trustworthy if it is actually intact. A partial
+  # download, or a file evicted by cloud sync (macOS iCloud marks these
+  # "dataless" and a read can return nothing), leaves a plausible-looking
+  # ZIP_PATH that unzip then rejects -- and because the archive is cached by
+  # existence alone, that poisons EVERY later run of this container until it
+  # is removed by hand. Verify and re-fetch instead.
+  if [[ -f "$ZIP_PATH" ]] && ! unzip -t "$ZIP_PATH" >/dev/null 2>&1; then
+    echo "[step 1a] cached archive is corrupt or unreadable, re-downloading: $ZIP_PATH"
+    rm -f "$ZIP_PATH"
+  fi
   if [[ ! -f "$ZIP_PATH" ]]; then
     [[ -n "$URL" ]] || { echo "ERROR: $ZIP_PATH not found and URL empty"; exit 1; }
     echo "[step 1a] Downloading $URL"
@@ -371,8 +381,8 @@ echo "[AGENTIC TD] Done."
 for f in run_summary.csv trace_config.json rv_trace_diff.log llm_trace_summary.txt llm_context.txt \
          llm_response.json apply_report.json verify_after_fix.log \
          verify_after_fix.verdict verify_after_fix.result.json run_verdict.txt \
-         td_validation/aggregate.json td_validation/calibration.json \
-         td_validation/composition.json agentic_conversation.json \
+         validation/aggregate.json validation/calibration.json \
+         validation/composition.json agentic_conversation.json \
          agentic_iterations.jsonl; do
   if [[ -f "$STEPS_OUT_DIR/$f" ]]; then
     sz=$(wc -c < "$STEPS_OUT_DIR/$f" | tr -d ' ')

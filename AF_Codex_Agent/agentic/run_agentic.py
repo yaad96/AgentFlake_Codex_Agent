@@ -14,15 +14,20 @@ Usage:
                                        [--force-rebuild-image]
 
     # multiple models in one shot:
-    python3 run_agentic.py <container> --models gpt-5.4,gpt-5.1-codex --runs 3
+    python3 run_agentic.py <container> --models gpt-5.4,gpt-5.5 --runs 3
 
 Model aliases are defined in agentic_config.py (CODEX_MODELS).
 Common aliases:
     codex          ->  gpt-5.4   (default)
-    gpt-5.1-codex  ->  gpt-5.1-codex
-    gpt-5-codex    ->  gpt-5-codex
+    gpt-5.2 / gpt-5.4 / gpt-5.4-mini / gpt-5.5 / gpt-5.6-sol /
+    gpt-5.6-terra / gpt-5.6-luna  ->  themselves
     Any other value is passed through to `codex exec --model` unchanged;
-    run `codex models` to see what the account can actually use.
+    run `codex debug models` to see what the account can actually use.
+
+The default gpt-5.4 (2026-03-05) is the closest contemporary of Claude Sonnet
+4.6 (2026-02-17), the model the Claude variant of this pipeline was
+benchmarked on. Newer models are stronger but are not a like-for-like
+comparison.
 
 Note: `codex exec` has no turn cap or cost ceiling, so --max-iterations is
 accepted but ignored (a warning is logged). The effective bound on a run is
@@ -106,11 +111,10 @@ def main() -> None:
                     help="result_container name from test_config.csv")
     ap.add_argument("--models", default="codex",
                     help="comma-separated model names/IDs (default: codex). "
-                         "Example: gpt-5.4,gpt-5.1-codex")
+                         "Example: gpt-5.4,gpt-5.5")
     ap.add_argument("--runs", type=int, default=3,
                     help="independent runs per model for pass@k (default 3)")
-    ap.add_argument("--max-iterations", type=int,
-                    default=agentic_config.MAX_ITERATIONS,
+    ap.add_argument("--max-iterations", type=int, default=None,
                     help="accepted for compatibility; codex exec has no turn "
                          "cap, so this is logged and ignored (the effective "
                          "bound is --cli-timeout-s)")

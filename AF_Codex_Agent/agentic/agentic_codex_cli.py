@@ -30,7 +30,7 @@ Outputs under data/<container>/run_<NN>/:
     codex_inputs/ contains prompt_user.txt, prompt_system.txt, and trace_config.json.
     codex_outputs/ contains trial.ndjson, codex.stderr, patch.diff,
     llm_response.json, apply_report.json, verify_after_fix.{log,verdict},
-    run_verdict.txt, td_validation/{aggregate,calibration,composition}.json,
+    run_verdict.txt, validation/{aggregate,calibration,composition}.json,
     thinking.txt, tool_calls.jsonl, usage.json, and meta.json.
 """
 
@@ -85,8 +85,12 @@ from td_oracle import (  # type: ignore  # noqa: E402
 try:
     sys.path.insert(0, str(SCRIPT_DIR))
     from agentic_config import VERIFY_PASS_RUNS  # type: ignore  # noqa: E402
+    from agentic_config import REASONING_EFFORTS  # type: ignore  # noqa: E402
+    from agentic_config import MODEL_REASONING_SUMMARY  # type: ignore  # noqa: E402
 except Exception:
     VERIFY_PASS_RUNS = 10
+    REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")
+    MODEL_REASONING_SUMMARY = "detailed"
 # Both values below are defaults. --verify-pass-runs / --cli-timeout-s override
 # them per run (see main()); left alone, parity with the orchestrator holds.
 
@@ -1013,6 +1017,73 @@ def run_simulated_agent(docker_container: str, base: Path, output_rel: str,
         return 0
 
 
+# Exit codes raised by the in-container agent script itself (see
+# run_agent_in_container). These mean the agent never really ran, which is a
+# broken experiment rather than a model failure and must not be scored.
+AGENT_RC_LOGIN_FAILED = 97
+AGENT_RC_NO_SYSTEM_PROMPT = 98
+AGENT_RC_NOT_FOUND = 127
+
+
+def scan_stream_for_broken_run(ndjson_path: Path) -> list:
+    """Return reasons the agent turn was invalid rather than merely unsuccessful.
+
+    Codex reports some fatal-to-the-experiment conditions as ordinary stream
+    items and still exits as if things were fine. The most dangerous is a bad
+    model id: Codex logs "Model metadata for `<slug>` not found. Defaulting to
+    fallback metadata" and then runs the turn on fallback settings, which would
+    be silently scored as a normal result on the wrong model.
+    """
+    reasons = []
+    if not ndjson_path.is_file():
+        return ["agent produced no stream file at all (trial.ndjson missing)"]
+    saw_any_event = False
+    saw_turn_completed = False
+    turn_failed_error = None
+    for line in ndjson_path.read_text(
+            encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        saw_any_event = True
+        rtype = rec.get("type")
+        if rtype == "turn.completed":
+            saw_turn_completed = True
+        elif rtype == "turn.failed":
+            err = rec.get("error")
+            turn_failed_error = (
+                (err or {}).get("message") if isinstance(err, dict) else str(err))
+        item = rec.get("item") if isinstance(rec.get("item"), dict) else {}
+        for message in (rec.get("message"), item.get("message")):
+            if isinstance(message, str) and "Model metadata for" in message:
+                reasons.append(message.strip())
+    if not saw_any_event:
+        reasons.append("agent stream contained no parsable events")
+    # A turn that FAILED is not a completed measurement. Codex emits
+    # turn.failed when the API rejects or drops the stream -- exhausted
+    # credits, quota, rate limits, a revoked key. The agent may already have
+    # edited files, so a partial patch exists and would otherwise be scored as
+    # a genuine repair attempt. Observed for real: a mid-run "You have no
+    # credits remaining" truncated the turn after 21 tool calls and the run was
+    # recorded as EXECUTED_TEST_FAILURE with zero tokens.
+    #
+    # A wall-clock timeout is NOT this case: the process is killed outright, so
+    # the stream simply stops with neither turn.completed nor turn.failed, and
+    # is left to the existing timeout handling.
+    if turn_failed_error is not None:
+        reasons.append(
+            f"the model turn failed before completing: {turn_failed_error}")
+    elif saw_any_event and not saw_turn_completed and reasons:
+        reasons.append("the model turn never completed")
+    return reasons
+
+
 def run_agent_in_container(docker_container: str, model: str,
                            reasoning_effort, max_turns,
                            input_rel: str, output_rel: str) -> tuple[int, int]:
@@ -1038,6 +1109,12 @@ def run_agent_in_container(docker_container: str, model: str,
     if reasoning_effort:
         codex_flags += [
             "-c", shlex.quote(f"model_reasoning_effort={reasoning_effort}")]
+    if MODEL_REASONING_SUMMARY:
+        # Without this the model still reasons but emits no `reasoning` items,
+        # leaving thinking.txt empty (observed on gpt-5.4 at effort=high).
+        codex_flags += [
+            "-c",
+            shlex.quote(f"model_reasoning_summary={MODEL_REASONING_SUMMARY}")]
     codex_flags += ["--dangerously-bypass-approvals-and-sandbox",
                     "--skip-git-repo-check", "--json"]
     flag_str = " ".join(codex_flags)
@@ -1051,8 +1128,20 @@ export PATH="/root/.local/bin:$PATH"
 # AGENTS.md from $CODEX_HOME — lets the system prompt live OUTSIDE the
 # repository. An AGENTS.md written into Flaky/ would be picked up by the
 # `git diff` patch capture and contaminate every candidate patch.
-export CODEX_HOME="$(mktemp -d)"
-cp "/app/work/{input_rel}/prompt_system.txt" "$CODEX_HOME/AGENTS.md"
+# Deliberately NOT under /tmp: Codex refuses to create its helper binaries
+# when CODEX_HOME sits in a temp dir ("Refusing to create helper binaries
+# under temporary dir"). The trap also matters — `codex login` writes the API
+# key to $CODEX_HOME/auth.json, which should not outlive the run.
+export CODEX_HOME="$(mktemp -d "${{HOME:-/root}}/codex_home.XXXXXX")"
+trap 'rm -rf "$CODEX_HOME"' EXIT
+# No `set -e` here on purpose (the rest of the script handles its own errors),
+# so this copy must be checked explicitly: a silently missing AGENTS.md means
+# the agent runs with NO instructions and still exits 0, producing a garbage
+# patch that would be scored as a legitimate FAILED.
+cp "/app/work/{input_rel}/prompt_system.txt" "$CODEX_HOME/AGENTS.md" || {{
+  echo "ERROR: could not install the system prompt into CODEX_HOME" >&2
+  exit 98
+}}
 
 : > {out}/codex.stderr
 
@@ -1298,6 +1387,7 @@ def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
     num_turns = 0
     is_error = False
     errors: list = []
+    item_errors: list = []
     thread_id = None
 
     if ndjson_path.is_file():
@@ -1341,6 +1431,13 @@ def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
                 item = rec.get("item") or {}
                 if not isinstance(item, dict):
                     continue
+                if item.get("type") == "error":
+                    # Codex reports non-fatal-to-it problems (bad model slug,
+                    # transport fallback) as error ITEMS. Keep them: without
+                    # this they exist only in the raw stream and a degraded run
+                    # looks indistinguishable from a clean one.
+                    item_errors.append(str(item.get("message") or "").strip())
+                    continue
                 # Fall back to a positional key if an item ever lacks an id, so
                 # unidentified items are still recorded instead of colliding.
                 key = item.get("id") or f"_anon_{len(order)}"
@@ -1349,6 +1446,7 @@ def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
                 items[key] = item
 
     thinking: list = []
+    messages: list = []
     tool_calls: list = []
     for key in order:
         item = items.get(key) or {}
@@ -1357,6 +1455,13 @@ def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
             text = item.get("text")
             if text:
                 thinking.append(text)
+        elif itype == "agent_message":
+            # The agent's own narrative. Worth keeping in its own right, and
+            # the only recoverable trace at all when reasoning summaries are
+            # disabled and thinking.txt comes out empty.
+            text = item.get("text")
+            if text:
+                messages.append(text)
         elif itype in TOOL_TYPES:
             if itype == "command_execution":
                 payload = {
@@ -1381,21 +1486,68 @@ def parse_stream(ndjson_path: Path, steps: Path, wall_ms: int = 0):
                            if k not in ("id", "type")}
             tool_calls.append({"name": itype, "input": payload})
 
-    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+    def _summarise(messages, cap=1500):
+        """Dedupe and length-cap. A single auth failure can emit ten near
+        identical retry lines; unbounded they bloat usage.json to kilobytes."""
+        seen, unique = set(), []
+        for m in messages:
+            m = (m or "").strip()
+            if m and m not in seen:
+                seen.add(m)
+                unique.append(m)
+        if not unique:
+            return None
+        joined = "; ".join(unique)
+        if len(joined) > cap:
+            joined = joined[:cap] + f" ... [truncated, {len(unique)} distinct]"
+        return joined
+
+    # Codex token semantics (codex-rs/exec/src/exec_events.rs):
+    #   input_tokens             full prompt for the turn
+    #   cached_input_tokens      SUBSET of input_tokens served from cache
+    #   cache_write_input_tokens billed separately, additive
+    #   output_tokens            completion
+    #   reasoning_output_tokens  SUBSET of output_tokens
+    # Billed input is therefore input + cache_write and NOT + cached, which
+    # would double count. The canonical totals are computed once here so the
+    # artifact and the CSV cannot disagree.
+    usage["billed_input_tokens"] = (
+        usage["input_tokens"] + usage["cache_write_input_tokens"])
+    usage["total_tokens"] = (
+        usage["billed_input_tokens"] + usage["output_tokens"])
+
+    # Codex-native activity counts. `codex exec` is a SINGLE turn whose tool
+    # loop is unbounded, so turn count says nothing about how hard the agent
+    # worked — the number of actions it took does.
+    counts = {
+        "turns": num_turns,
+        "tool_calls": len(tool_calls),
+        "commands": sum(1 for t in tool_calls
+                        if t["name"] == "command_execution"),
+        "file_changes": sum(1 for t in tool_calls
+                            if t["name"] == "file_change"),
+        "reasoning_chunks": len(thinking),
+        "agent_messages": len(messages),
+    }
+
     usage_doc = {
         "usage": usage,
+        "counts": counts,
         "num_turns": num_turns,
         # Codex does not report a turn duration, so this is the driver's
         # wall-clock measurement around the `docker exec`.
         "duration_ms": wall_ms,
         "is_error": is_error,
-        "error": "; ".join(errors) if errors else None,
+        "error": _summarise(errors),
+        "item_errors": _summarise(item_errors),
         "thread_id": thread_id,
         "subtype": "codex-exec",
     }
 
     (steps / "thinking.txt").write_text(
         "\n\n".join(thinking), encoding="utf-8")
+    (steps / "agent_messages.txt").write_text(
+        "\n\n".join(messages), encoding="utf-8")
     with (steps / "tool_calls.jsonl").open("w", encoding="utf-8") as f:
         for tc in tool_calls:
             f.write(json.dumps(tc) + "\n")
@@ -1782,9 +1934,11 @@ def main():
                     help="model id passed to `codex exec --model` "
                          "(default: agentic_config.DEFAULT_MODEL)")
     ap.add_argument("--reasoning-effort", default=None,
-                    choices=["minimal", "low", "medium", "high"],
+                    choices=list(REASONING_EFFORTS),
                     help="forwarded as -c model_reasoning_effort "
-                         "(default: agentic_config.MODEL_REASONING_EFFORT)")
+                         "(default: agentic_config.MODEL_REASONING_EFFORT). "
+                         "Support is per-model; xhigh/max/ultra exist only on "
+                         "newer models.")
     ap.add_argument("--max-iterations", type=int, default=None,
                     help="accepted for compatibility; codex exec has no "
                          "turn cap, so this is logged and ignored")
@@ -1809,8 +1963,15 @@ def main():
             from agentic_config import MODEL_REASONING_EFFORT as _DEF_EFFORT  # type: ignore  # noqa: E402
         except Exception:
             _DEF_EFFORT = "high"
-        args.reasoning_effort = (
-            os.environ.get("AGENTIC_REASONING_EFFORT", "").strip() or _DEF_EFFORT)
+        env_effort = os.environ.get("AGENTIC_REASONING_EFFORT", "").strip()
+        # The env var bypasses argparse's `choices`, so validate it here too.
+        # An unrecognised effort reaches `-c model_reasoning_effort=` and makes
+        # codex fail, which would be scored as a false FAILED.
+        if env_effort and env_effort not in REASONING_EFFORTS:
+            sys.exit(f"ERROR: AGENTIC_REASONING_EFFORT={env_effort!r} is not a "
+                     f"valid reasoning effort. Choose one of: "
+                     f"{', '.join(REASONING_EFFORTS)}")
+        args.reasoning_effort = env_effort or _DEF_EFFORT
 
     if args.verify_pass_runs is not None:
         VERIFY_PASS_RUNS = args.verify_pass_runs
@@ -1903,6 +2064,24 @@ def main():
             docker_container, args.model, args.reasoning_effort, max_turns,
             input_rel, output_rel)
     log(f"agent exit code: {agent_rc}")
+    # An agent that never started is a broken experiment, not a model failure.
+    # Left ungated these produce an empty patch that scores as a legitimate
+    # FAILED and quietly corrupts the pass@k denominator.
+    _fatal_rc = {
+        AGENT_RC_LOGIN_FAILED: (
+            "codex could not authenticate inside the container "
+            "(check OPENAI_API_KEY and see codex.stderr)"),
+        AGENT_RC_NO_SYSTEM_PROMPT: (
+            "the system prompt could not be installed at $CODEX_HOME/AGENTS.md, "
+            "so the agent would have run with no instructions"),
+        AGENT_RC_NOT_FOUND: (
+            "the `codex` binary was not found on PATH inside the container "
+            "(rebuild the image)"),
+    }
+    if agent_rc in _fatal_rc:
+        sys.exit(f"ERROR: agent exited {agent_rc}: {_fatal_rc[agent_rc]}. "
+                 "Refusing to score a run in which the agent never executed.")
+
     try:
         quiesce_agent_processes(docker_container)
     except RuntimeError as exc:
@@ -1927,6 +2106,14 @@ def main():
             artifact.unlink()
         elif artifact.exists():
             shutil.rmtree(artifact)
+
+    # A bad --model does not make codex fail; it warns and silently downgrades
+    # to fallback metadata. Catch that here, before the expensive verification
+    # runs, rather than scoring a result produced on the wrong model.
+    broken = scan_stream_for_broken_run(steps / "trial.ndjson")
+    if broken:
+        sys.exit("ERROR: the agent turn was not valid, so it must not be "
+                 "scored:\n  - " + "\n  - ".join(broken))
 
     # ---- capture the patch (external git-dir; never the outer repo) --------
     # Hardened: a swallowed git failure here would emit an EMPTY patch, which is
@@ -1976,9 +2163,9 @@ def main():
     # gate, and post-fix verification share exactly the same strict parser.
     verdict_path = steps / "verify_after_fix.verdict"
     result_path = steps / "verify_after_fix.result.json"
-    validation_dir = steps / "td_validation"
+    validation_dir = steps / "validation"
     # codex_outputs is writable during the agent turn. Do not trust a
-    # pre-created td_validation symlink/directory as the destination for
+    # pre-created validation symlink/directory as the destination for
     # protected oracle material or authoritative evidence.
     if validation_dir.is_symlink():
         validation_dir.unlink()
@@ -2836,13 +3023,14 @@ def main():
                       "llm_response.json", "apply_report.json",
                       "verify_after_fix.log", "verify_after_fix.verdict",
                       "verify_after_fix.result.json", "run_verdict.txt",
-                      "td_validation/aggregate.json",
-                      "td_validation/oracle_manifest.json",
-                      "td_validation/calibration.json",
-                      "td_validation/reference_pristine_control.json",
-                      "td_validation/composition.json",
-                      "td_validation/victim_oracle_audit.json",
-                      "thinking.txt", "tool_calls.jsonl", "usage.json"]
+                      "validation/aggregate.json",
+                      "validation/oracle_manifest.json",
+                      "validation/calibration.json",
+                      "validation/reference_pristine_control.json",
+                      "validation/composition.json",
+                      "validation/victim_oracle_audit.json",
+                      "thinking.txt", "agent_messages.txt",
+                      "tool_calls.jsonl", "usage.json"]
     terminal_artifacts = {"verify_after_fix.verdict", "run_verdict.txt"}
     artifacts = {
         name: name for name in artifact_names
@@ -2854,6 +3042,9 @@ def main():
         "run_dir": str(base),
         "docker_container": docker_container,
         "model": args.model,
+        # Codex has no temperature knob; reasoning effort is the analogous
+        # sampling control and is what the summary should report.
+        "reasoning_effort": args.reasoning_effort,
         "test_type": test_type,
         "module": row.get("module"),
         "polluter": row.get("polluter/state setter"),

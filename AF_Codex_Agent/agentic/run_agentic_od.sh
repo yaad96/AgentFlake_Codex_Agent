@@ -211,6 +211,16 @@ done
 
 if (( need_step1 )); then
   ZIP_PATH="$REPROFLAKE_DIR/data/${ZIP}.zip"
+  # A cached archive is only trustworthy if it is actually intact. A partial
+  # download, or a file evicted by cloud sync (macOS iCloud marks these
+  # "dataless" and a read can return nothing), leaves a plausible-looking
+  # ZIP_PATH that unzip then rejects -- and because the archive is cached by
+  # existence alone, that poisons EVERY later run of this container until it
+  # is removed by hand. Verify and re-fetch instead.
+  if [[ -f "$ZIP_PATH" ]] && ! unzip -t "$ZIP_PATH" >/dev/null 2>&1; then
+    echo "[step 1a] cached archive is corrupt or unreadable, re-downloading: $ZIP_PATH"
+    rm -f "$ZIP_PATH"
+  fi
   if [[ ! -f "$ZIP_PATH" ]]; then
     [[ -n "$URL" ]] || { echo "ERROR: $ZIP_PATH not found and CSV URL is empty"; exit 1; }
     echo "[step 1a] Downloading $URL -> $ZIP_PATH"
