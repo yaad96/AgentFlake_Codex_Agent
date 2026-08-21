@@ -5,15 +5,15 @@ Edit this file to tune behaviour, set API keys, and choose model versions.
 Every value here can also be overridden at run time via CLI flags or env vars
 (env vars always take precedence over values set in this file):
 
-  CLI flags:  --max-iterations, --model   on run_agentic.py / agentic_claude_cli.py
-  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL, ANTHROPIC_API_KEY
+  CLI flags:  --max-iterations, --model   on run_agentic.py / agentic_codex_cli.py
+  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL, OPENAI_API_KEY
 """
 
 from pathlib import Path
 
 _CONFIG_DIR = Path(__file__).resolve().parent
 _PROJECT_DIR = _CONFIG_DIR.parent
-ANTHROPIC_API_KEY_FILE = _PROJECT_DIR / ".anthropic_api_key"
+OPENAI_API_KEY_FILE = _PROJECT_DIR / ".openai_api_key"
 
 def _read_secret_file(path: Path) -> str:
     try:
@@ -27,50 +27,84 @@ def _read_secret_file(path: Path) -> str:
 
 # ===========================================================================
 # API KEYS
-# Put your Anthropic key in AF_Codex_Agent/.anthropic_api_key, or export
-# ANTHROPIC_API_KEY in the shell. Environment variables always win.
+# Put your OpenAI key in AF_Codex_Agent/.openai_api_key, or export
+# OPENAI_API_KEY in the shell. Environment variables always win.
 # Leave the file empty to rely only on the environment variable.
 # ===========================================================================
 
-ANTHROPIC_API_KEY: str = _read_secret_file(ANTHROPIC_API_KEY_FILE)   # "sk-ant-..."  — used by all claude-* models
-OPENAI_API_KEY: str    = ""   # unused by the Claude CLI pipeline
+OPENAI_API_KEY: str = _read_secret_file(OPENAI_API_KEY_FILE)   # "sk-..." 
 
 
 # ===========================================================================
 # MODEL VERSIONS
-# Canonical model IDs for each provider. run_agentic.py resolves short
-# aliases (e.g. "claude" → CLAUDE_MODELS["claude"]) using these dicts.
+# run_agentic.py resolves short aliases (e.g. "codex" →
+# CODEX_MODELS["codex"]) using this dict.
 # Update the IDs here when a new model version is released.
 # ===========================================================================
 
-CLAUDE_MODELS: dict = {
-    # short alias          → full Anthropic model ID
-    "claude":              "claude-sonnet-4-6",   # default alias
-    "claude-sonnet":       "claude-sonnet-4-6",
-    "sonnet":              "claude-sonnet-4-6",
-    "claude-opus":         "claude-opus-4-7",
-    "opus":                "claude-opus-4-7",
-    "haiku":               "claude-haiku-4-5-20251001",
+CODEX_MODELS: dict = {
+    # short alias   → model id passed to `codex exec --model`
+    #
+    # Verified against `codex debug models` (Codex CLI 0.149.0). Slugs not in
+    # that catalog do NOT fail loudly: Codex logs "Model metadata for <x> not
+    # found. Defaulting to fallback metadata" and runs degraded, so a typo here
+    # silently corrupts a whole batch. Re-check with `codex debug models`
+    # before adding an entry.
+    "codex":         "gpt-5.4",       # default alias
+    "gpt-5.4":       "gpt-5.4",       # released 2026-03-05
+    "gpt-5.4-mini":  "gpt-5.4-mini",  # smaller sibling of the same generation
+    "gpt-5.2":       "gpt-5.2",       # released 2025-12-11
+    "gpt-5.5":       "gpt-5.5",       # released 2026-04-23
+    "gpt-5.6-sol":   "gpt-5.6-sol",   # released 2026-07-09, frontier coding
+    "gpt-5.6-terra": "gpt-5.6-terra",
+    "gpt-5.6-luna":  "gpt-5.6-luna",
 }
+# Unknown values are passed through to `codex --model` unchanged rather than
+# rejected: the set of models an account can use changes over time and is
+# authoritatively listed by `codex models`. A hard allow-list here would
+# silently block a newly released model.
 
-OPENAI_MODELS: dict = {
-    # short alias          → full OpenAI model ID
-    "openai":              "gpt-4o",              # default OpenAI alias
-    "gpt-4o":              "gpt-4o",
-    "gpt-4o-mini":         "gpt-4o-mini",
-    "gpt-4.1":             "gpt-4.1",
-    "gpt-4.1-mini":        "gpt-4.1-mini",
-}
+# Reasoning effort forwarded via `-c model_reasoning_effort=...`.
+# Support is per-model (from `codex debug models`):
+#   gpt-5.2 / gpt-5.4 / gpt-5.5      low, medium, high, xhigh
+#   gpt-5.6-luna                     ... + max
+#   gpt-5.6-sol / gpt-5.6-terra      ... + max, ultra
+# Note there is no "minimal" level on any current model.
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")
+MODEL_REASONING_EFFORT: str = "high"
+
+# Reasoning SUMMARY visibility, forwarded via `-c model_reasoning_summary=...`.
+# One of: "auto" | "concise" | "detailed" | "none".
+#
+# This is not cosmetic. Under the default the model still reasons (runs bill
+# reasoning_output_tokens) but emits no `reasoning` stream items at all, so
+# thinking.txt comes out EMPTY and the run has no recoverable reasoning trace.
+# "detailed" is the setting that actually surfaces one. OpenAI does not expose
+# raw chain-of-thought, so this is a summary either way.
+REASONING_SUMMARIES = ("auto", "concise", "detailed", "none")
+MODEL_REASONING_SUMMARY: str = "detailed"
 
 # Default model used when --model is not passed on the CLI.
-# Must be a key in CLAUDE_MODELS or a full Anthropic model ID.
-DEFAULT_MODEL: str = "claude-sonnet-4-6"
+#
+# gpt-5.4 (2026-03-05) is chosen deliberately as the closest CONTEMPORARY of
+# Claude Sonnet 4.6 (2026-02-17), which the Claude variant of this pipeline was
+# benchmarked on — 16 days apart, and the same generation. Later models
+# (gpt-5.5, gpt-5.6-*) are stronger but would not be a like-for-like
+# comparison. `codex debug models` marks gpt-5.4 visibility=hide (superseded)
+# while supported_in_api stays true, so it still runs; if OpenAI eventually
+# retires it, the comparison has to be re-baselined rather than silently moved
+# to a newer model.
+DEFAULT_MODEL: str = "gpt-5.4"
 
 
 # ===========================================================================
 # ITERATION LIMITS
 # ===========================================================================
 
+# NOTE: `codex exec` runs a single turn with an unbounded internal tool loop
+# and exposes no turn cap, so this is NOT enforced. It is kept only so the
+# --max-iterations flag keeps parsing; the real bound on a run is
+# --cli-timeout-s. See agentic_codex_cli.run_agent_in_container.
 MAX_ITERATIONS: int = 75
 # Hard cap on submit_patch attempts per container run.
 # The agent may call as many read-only context tools as it likes per
@@ -90,7 +124,13 @@ VERIFY_PASS_RUNS: int = 10
 
 
 # ===========================================================================
-# API CALL SETTINGS
+# LEGACY API CALL SETTINGS — NOT USED BY THE CODEX CLI PATH
+#
+# These belong to the older direct-API orchestrator. The Codex CLI owns its own
+# sampling and tool-output handling, so nothing below is read by
+# agentic_codex_cli.py. Reasoning effort (MODEL_REASONING_EFFORT above) is the
+# only sampling control this pipeline actually applies. Left in place for the
+# archived orchestrator; do not add new readers.
 # ===========================================================================
 
 MAX_TOKENS: int = 8192

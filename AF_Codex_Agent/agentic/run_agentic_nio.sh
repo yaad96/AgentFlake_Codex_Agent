@@ -4,11 +4,11 @@
 #
 # Mirrors run_nio_tracemop.sh's setup (steps 1-7 plus the auto-generated
 # JUnit wrapper that re-invokes the victim twice in one JVM) but replaces
-# steps 8-11 with a call to agentic_claude_cli.py. The Claude CLI agent then
-# iterates through context tools up to the configured Claude Code turn cap, using the wrapper-based verify command provided by agentic_verify.py.
+# steps 8-11 with a call to agentic_codex_cli.py. The Codex CLI agent then
+# iterates through context tools up to the configured Codex turn cap, using the wrapper-based verify command provided by agentic_verify.py.
 #
 # Usage:  ./run_agentic_nio.sh <result_container> [options]
-# Requires: ANTHROPIC_API_KEY or .anthropic_api_key + install AF_Codex_Agent/requirements.txt
+# Requires: OPENAI_API_KEY or .openai_api_key + install AF_Codex_Agent/requirements.txt
 # ============================================================
 
 set -euo pipefail
@@ -16,7 +16,6 @@ set -euo pipefail
 # ---- CLI options (positional container + optional flags) -------------------
 RESULT_CONTAINER=""
 FORCE_REBUILD_IMAGE=0
-MAX_BUDGET_USD=""
 VERIFY_PASS_RUNS=""
 CLI_TIMEOUT_S=""
 
@@ -26,9 +25,8 @@ Usage: $0 <result_container> [options]
 
 Options:
   --force-rebuild-image     rebuild the Docker image even if one already exists
-  --max-budget-usd <usd>    hard Claude Code spend cap for this run
   --verify-pass-runs <n>    extra passing verification runs after the first pass
-  --cli-timeout-s <sec>     wall-clock cap for Claude Code
+  --cli-timeout-s <sec>     wall-clock cap for Codex
   -h, --help                show this help
 USAGE
 }
@@ -36,7 +34,6 @@ USAGE
 while (( $# )); do
   case "$1" in
     --force-rebuild-image) FORCE_REBUILD_IMAGE=1; shift ;;
-    --max-budget-usd)   MAX_BUDGET_USD="${2:?--max-budget-usd needs a value}";   shift 2 ;;
     --verify-pass-runs) VERIFY_PASS_RUNS="${2:?--verify-pass-runs needs a value}"; shift 2 ;;
     --cli-timeout-s)    CLI_TIMEOUT_S="${2:?--cli-timeout-s needs a value}";     shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -55,15 +52,15 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPROFLAKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ANTHROPIC_API_KEY_FILE="$REPROFLAKE_DIR/.anthropic_api_key"
+OPENAI_API_KEY_FILE="$REPROFLAKE_DIR/.openai_api_key"
 
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$ANTHROPIC_API_KEY_FILE" ]]; then
-  ANTHROPIC_API_KEY="$(sed -n "s/^[[:space:]]*//; s/[[:space:]]*$//; /^[#]/d; /^$/d; p; q" "$ANTHROPIC_API_KEY_FILE")"
-  export ANTHROPIC_API_KEY
+if [[ -z "${OPENAI_API_KEY:-}" && -f "$OPENAI_API_KEY_FILE" ]]; then
+  OPENAI_API_KEY="$(sed -n "s/^[[:space:]]*//; s/[[:space:]]*$//; /^[#]/d; /^$/d; p; q" "$OPENAI_API_KEY_FILE")"
+  export OPENAI_API_KEY
 fi
 
-if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "ERROR: ANTHROPIC_API_KEY is required. Export it or put it in $ANTHROPIC_API_KEY_FILE."; exit 1
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  echo "ERROR: OPENAI_API_KEY is required. Export it or put it in $OPENAI_API_KEY_FILE."; exit 1
 fi
 
 DATA_ROOT="$REPROFLAKE_DIR/data/$RESULT_CONTAINER"
@@ -82,9 +79,9 @@ if [[ ! "$RUN_LABEL" =~ ^run_[0-9]+$ ]]; then
 fi
 export AGENTIC_RUN_LABEL="$RUN_LABEL"
 DATA_DIR="$DATA_ROOT/$RUN_LABEL"
-CLAUDE_INPUTS_DIR="$DATA_DIR/claude_inputs"
-CLAUDE_OUTPUTS_DIR="$DATA_DIR/claude_outputs"
-STEPS_OUT_DIR="$CLAUDE_OUTPUTS_DIR"
+CODEX_INPUTS_DIR="$DATA_DIR/codex_inputs"
+CODEX_OUTPUTS_DIR="$DATA_DIR/codex_outputs"
+STEPS_OUT_DIR="$CODEX_OUTPUTS_DIR"
 CSV="$REPROFLAKE_DIR/test_config.csv"
 
 [[ -f "$CSV" ]] || { echo "ERROR: $CSV not found"; exit 1; }
@@ -133,8 +130,8 @@ if ((${#DOCKER_PLATFORM_ARGS[@]})); then
   echo "[setup] Docker platform: ${DOCKER_PLATFORM_ARGS[*]}"
 fi
 
-image_has_claude() {
-  docker run --rm --entrypoint sh "$1" -lc 'command -v claude >/dev/null 2>&1'
+image_has_codex() {
+  docker run --rm --entrypoint sh "$1" -lc 'command -v codex >/dev/null 2>&1'
 }
 
 ensure_docker_image() {
@@ -145,16 +142,16 @@ ensure_docker_image() {
     echo "[setup] force rebuilding Docker image '$image'"
   elif ! docker image inspect "$image" >/dev/null 2>&1; then
     echo "[setup] Docker image '$image' not found"
-  elif image_has_claude "$image"; then
+  elif image_has_codex "$image"; then
     echo "[setup] Docker image '$image' is ready"
     return 0
   else
-    echo "[setup] Docker image '$image' exists but lacks Claude CLI or cannot run"
+    echo "[setup] Docker image '$image' exists but lacks Codex CLI or cannot run"
   fi
 
   if [[ -z "$dockerfile" ]]; then
     echo "ERROR: image '$image' is missing/stale and no Dockerfile is available in this repo." >&2
-    echo "       Rebuild or install an image with the Claude CLI, or choose a supported Java/test-type combination." >&2
+    echo "       Rebuild or install an image with the Codex CLI, or choose a supported Java/test-type combination." >&2
     exit 1
   fi
   echo "[setup] building Docker image '$image' from $dockerfile"
@@ -195,6 +192,16 @@ need_step1=0
 for d in Fixed Flaky Flakym2; do [[ -d "$DATA_DIR/$d" ]] || need_step1=1; done
 if (( need_step1 )); then
   ZIP_PATH="$REPROFLAKE_DIR/data/${ZIP}.zip"
+  # A cached archive is only trustworthy if it is actually intact. A partial
+  # download, or a file evicted by cloud sync (macOS iCloud marks these
+  # "dataless" and a read can return nothing), leaves a plausible-looking
+  # ZIP_PATH that unzip then rejects -- and because the archive is cached by
+  # existence alone, that poisons EVERY later run of this container until it
+  # is removed by hand. Verify and re-fetch instead.
+  if [[ -f "$ZIP_PATH" ]] && ! unzip -t "$ZIP_PATH" >/dev/null 2>&1; then
+    echo "[step 1a] cached archive is corrupt or unreadable, re-downloading: $ZIP_PATH"
+    rm -f "$ZIP_PATH"
+  fi
   if [[ ! -f "$ZIP_PATH" ]]; then
     [[ -n "$URL" ]] || { echo "ERROR: $ZIP_PATH not found and URL empty"; exit 1; }
     mkdir -p "$REPROFLAKE_DIR/data"
@@ -356,7 +363,7 @@ if (( KT < 1 || KF + KE < 1 )); then
 fi
 echo "[sanity ] OK — Fixed passed, Flaky failed (NIO reproduced)"
 
-mkdir -p "$CLAUDE_INPUTS_DIR" "$CLAUDE_OUTPUTS_DIR"
+mkdir -p "$CODEX_INPUTS_DIR" "$CODEX_OUTPUTS_DIR"
 
 # STEP 9.5 — snapshot
 echo "[step 9.5] snapshotting Flaky/ -> Flaky.pristine"
@@ -364,7 +371,7 @@ rm -rf "$DATA_DIR/Flaky.pristine"
 cp -r "$DATA_DIR/Flaky" "$DATA_DIR/Flaky.pristine"
 
 echo "[step 9.5] Writing trace_config.json"
-cat > "$CLAUDE_INPUTS_DIR/trace_config.json" <<JSONEOF
+cat > "$CODEX_INPUTS_DIR/trace_config.json" <<JSONEOF
 {
   "docker_container": "$CONTAINER",
   "test_type": "nio",
@@ -382,12 +389,11 @@ JSONEOF
 # AGENT — verify_victim for NIO needs WRAPPER_FQCN + SUREFIRE_VER in env;
 # agentic_verify.py reads them, mirroring run_nio_tracemop.sh's verify_victim().
 export WRAPPER_FQCN SUREFIRE_VER
-  echo "[agent ] launching agentic_claude_cli.py (Claude Code agent, model=${AGENTIC_MODEL:-claude-sonnet-4-6})"
+  echo "[agent ] launching agentic_codex_cli.py (Codex agent, model=${AGENTIC_MODEL:-gpt-5.4})"
   set +e
-  "${AGENTIC_PYTHON:-python3}" "$SCRIPT_DIR/agentic_claude_cli.py" "$RESULT_CONTAINER" \
+  "${AGENTIC_PYTHON:-python3}" "$SCRIPT_DIR/agentic_codex_cli.py" "$RESULT_CONTAINER" \
     --docker-container "$CONTAINER" \
-    --model "${AGENTIC_MODEL:-claude-sonnet-4-6}" \
-    ${MAX_BUDGET_USD:+--max-budget-usd "$MAX_BUDGET_USD"} \
+    --model "${AGENTIC_MODEL:-gpt-5.4}" \
     ${VERIFY_PASS_RUNS:+--verify-pass-runs "$VERIFY_PASS_RUNS"} \
     ${CLI_TIMEOUT_S:+--cli-timeout-s "$CLI_TIMEOUT_S"}
   AGENT_RC=$?

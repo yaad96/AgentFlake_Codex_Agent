@@ -9,7 +9,7 @@
 # the patch did not fix it.
 #
 # Options
-#   --run run_NN     use data/<container>/<run_NN>/claude_outputs/patch.diff
+#   --run run_NN     use data/<container>/<run_NN>/codex_outputs/patch.diff
 #                    (default: the newest run that has a non-empty patch.diff)
 #   --patch FILE     use an explicit patch instead (e.g. the developer's fix,
 #                    or one you wrote yourself)
@@ -62,10 +62,10 @@ if (( USEDEV )); then
   PATCH="$W/.devfix.diff"          # generated below, after staging
 elif [[ -z "$PATCH" ]]; then
   if [[ -n "$RUN" ]]; then
-    PATCH="$ROOT/data/$CONTAINER/$RUN/claude_outputs/patch.diff"
+    PATCH="$ROOT/data/$CONTAINER/$RUN/codex_outputs/patch.diff"
   else
     for d in $(ls -dt "$ROOT/data/$CONTAINER"/run_* 2>/dev/null); do
-      if [[ -s "$d/claude_outputs/patch.diff" ]]; then PATCH="$d/claude_outputs/patch.diff"; break; fi
+      if [[ -s "$d/codex_outputs/patch.diff" ]]; then PATCH="$d/codex_outputs/patch.diff"; break; fi
     done
   fi
 fi

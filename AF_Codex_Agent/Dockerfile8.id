@@ -24,12 +24,13 @@ RUN apt-get update && \
 # Install NonDex Maven plugin
 RUN mvn edu.illinois:nondex-maven-plugin:2.1.1:help -q
 
-# Claude Code CLI — used by the agentic_claude_cli driver (the "Claude Code
-# agent" repair variant). Installed to /root/.local/bin. Auth is supplied at
-# run time via the ANTHROPIC_API_KEY env var passed to `docker exec`.
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Codex CLI — used by the agentic_codex_cli driver. Installs to
+# /root/.local/bin. Auth is supplied at run time: the driver passes
+# OPENAI_API_KEY into `docker exec`, and the in-container script runs
+# `codex login --with-api-key` against a per-run CODEX_HOME.
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
-RUN claude --version
+RUN codex --version
 
 # Automatically run the flaky test script with the required arguments
 CMD ["./run_flaky_nondex_mod.sh", "nifi-nar-bundles/nifi-solr-bundle/nifi-solr-processors", "org.apache.nifi.processors.solr.TestQuerySolr#testAttributes", "5"]

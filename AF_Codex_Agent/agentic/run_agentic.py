@@ -8,24 +8,32 @@ single invocation; each model runs independently and archives to its own
 subdirectory.
 
 Usage:
-    python3 run_agentic.py <container> [--models claude] [--runs 3]
-                                       [--max-iterations 10]
-                                       [--max-budget-usd 0.50]
+    python3 run_agentic.py <container> [--models codex] [--runs 3]
                                        [--verify-pass-runs 10]
                                        [--cli-timeout-s 2400]
                                        [--force-rebuild-image]
 
     # multiple models in one shot:
-    python3 run_agentic.py <container> --models claude,claude-opus --runs 3
+    python3 run_agentic.py <container> --models gpt-5.4,gpt-5.5 --runs 3
 
-Model aliases are defined in agentic_config.py (CLAUDE_MODELS).
+Model aliases are defined in agentic_config.py (CODEX_MODELS).
 Common aliases:
-    claude / claude-sonnet  ->  claude-sonnet-4-6   (default)
-    claude-opus / opus      ->  claude-opus-4-7
-    haiku                   ->  claude-haiku-4-5-20251001
-    Any full model ID is passed through unchanged.
+    codex          ->  gpt-5.4   (default)
+    gpt-5.2 / gpt-5.4 / gpt-5.4-mini / gpt-5.5 / gpt-5.6-sol /
+    gpt-5.6-terra / gpt-5.6-luna  ->  themselves
+    Any other value is passed through to `codex exec --model` unchanged;
+    run `codex debug models` to see what the account can actually use.
 
-ANTHROPIC_API_KEY is read from the environment first, then AF_Codex_Agent/.anthropic_api_key via agentic_config.py.
+The default gpt-5.4 (2026-03-05) is the closest contemporary of Claude Sonnet
+4.6 (2026-02-17), the model the Claude variant of this pipeline was
+benchmarked on. Newer models are stronger but are not a like-for-like
+comparison.
+
+Note: `codex exec` has no turn cap or cost ceiling, so --max-iterations is
+accepted but ignored (a warning is logged). The effective bound on a run is
+--cli-timeout-s.
+
+OPENAI_API_KEY is read from the environment first, then AF_Codex_Agent/.openai_api_key via agentic_config.py.
 """
 
 from __future__ import annotations
@@ -53,24 +61,23 @@ SUPPORTED_TYPES = {"od", "td", "id", "nio"}
 # ---------------------------------------------------------------------------
 
 def resolve_model(alias: str) -> tuple[str, str]:
-    """Return (canonical_model_id, provider) for a Claude alias or model ID."""
-    key = alias.lower()
+    """Return (model_id, provider) for a Codex alias or raw model ID.
 
-    if key in agentic_config.CLAUDE_MODELS:
-        return agentic_config.CLAUDE_MODELS[key], "anthropic"
-    if key.startswith("claude"):
-        return alias, "anthropic"
+    Known short aliases are expanded via agentic_config.CODEX_MODELS; anything
+    else is passed through to `codex exec --model` verbatim. Codex is the
+    authority on which model IDs an account may use (`codex models`), so
+    rejecting unknown strings here would only block newly released models.
+    """
+    key = alias.strip().lower()
+    if not key:
+        sys.exit("ERROR: empty model alias")
+    return agentic_config.CODEX_MODELS.get(key, alias.strip()), "openai"
 
-    sys.exit(
-        "ERROR: Claude CLI mode supports only Claude models. "
-        f"Got '{alias}'."
-    )
 
-
-def get_api_key(provider: str = "anthropic") -> tuple[str, str]:
-    """Return (api_key, source) for the Claude CLI backend."""
-    env_val = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    config_val = (agentic_config.ANTHROPIC_API_KEY or "").strip()
+def get_api_key(provider: str = "openai") -> tuple[str, str]:
+    """Return (api_key, source) for the Codex CLI backend."""
+    env_val = os.environ.get("OPENAI_API_KEY", "").strip()
+    config_val = (agentic_config.OPENAI_API_KEY or "").strip()
     if env_val:
         return env_val, "env"
     if config_val:
@@ -102,21 +109,19 @@ def main() -> None:
     )
     ap.add_argument("container",
                     help="result_container name from test_config.csv")
-    ap.add_argument("--models", default="claude",
-                    help="comma-separated model names/IDs (default: claude). "
-                         "Example: claude,claude-opus")
+    ap.add_argument("--models", default="codex",
+                    help="comma-separated model names/IDs (default: codex). "
+                         "Example: gpt-5.4,gpt-5.5")
     ap.add_argument("--runs", type=int, default=3,
                     help="independent runs per model for pass@k (default 3)")
-    ap.add_argument("--max-iterations", type=int,
-                    default=agentic_config.MAX_ITERATIONS,
-                    help=f"Claude Code max turns per run "
-                         f"(default from config: {agentic_config.MAX_ITERATIONS})")
-    ap.add_argument("--max-budget-usd", default=None,
-                    help="hard Claude Code spend cap per run (e.g. 0.50)")
+    ap.add_argument("--max-iterations", type=int, default=None,
+                    help="accepted for compatibility; codex exec has no turn "
+                         "cap, so this is logged and ignored (the effective "
+                         "bound is --cli-timeout-s)")
     ap.add_argument("--verify-pass-runs", type=int, default=None,
                     help="extra passing verification runs required after the first pass")
     ap.add_argument("--cli-timeout-s", type=int, default=None,
-                    help="wall-clock cap in seconds for Claude Code")
+                    help="wall-clock cap in seconds for Codex")
     ap.add_argument("--force-rebuild-image", action="store_true",
                     help="rebuild the Docker image even if one already exists")
     args = ap.parse_args()
@@ -152,8 +157,8 @@ def main() -> None:
 
         api_key, source = get_api_key(provider)
         if not api_key:
-            sys.exit(f"ERROR: No ANTHROPIC_API_KEY found for '{model_id}'.\n"
-                     "       Set ANTHROPIC_API_KEY in agentic_config.py or export it as "
+            sys.exit(f"ERROR: No OPENAI_API_KEY found for '{model_id}'.\n"
+                     "       Set OPENAI_API_KEY in agentic_config.py or export it as "
                      "an environment variable.")
 
         resolved.append((alias, model_id, provider))
@@ -169,9 +174,6 @@ def main() -> None:
 
     # Optional per-run knobs, forwarded to run_agentic_pass_at_k.py only when set.
     passthrough = []
-    if args.max_budget_usd is not None:
-        passthrough += ["--max-budget-usd", str(args.max_budget_usd)]
-        print(f"[dispatcher] max-budget  = ${args.max_budget_usd}")
     if args.verify_pass_runs is not None:
         passthrough += ["--verify-pass-runs", str(args.verify_pass_runs)]
         print(f"[dispatcher] verify-runs = {args.verify_pass_runs}")
@@ -202,7 +204,7 @@ def main() -> None:
         # and orchestrator see it even if it was only set in agentic_config.py.
         env = os.environ.copy()
         api_key, _ = get_api_key(provider)
-        env["ANTHROPIC_API_KEY"] = api_key
+        env["OPENAI_API_KEY"] = api_key
 
         proc = subprocess.run(cmd, env=env)
         exit_codes[model_id] = proc.returncode

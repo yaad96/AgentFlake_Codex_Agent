@@ -7,10 +7,10 @@ post-patch surefire (or NonDex) command inside the running docker container,
 captures stdout/stderr, parses fresh Surefire XML when available (with a strict
 text fallback), and writes:
 
-    data/<container>/run_<NN>/claude_outputs/verify_after_fix.log
-    data/<container>/run_<NN>/claude_outputs/verify_after_fix.verdict
-    data/<container>/run_<NN>/claude_outputs/verify_after_fix.result.json
-    data/<container>/run_<NN>/claude_outputs/verify_after_fix.attempt_NN.json
+    data/<container>/run_<NN>/codex_outputs/verify_after_fix.log
+    data/<container>/run_<NN>/codex_outputs/verify_after_fix.verdict
+    data/<container>/run_<NN>/codex_outputs/verify_after_fix.result.json
+    data/<container>/run_<NN>/codex_outputs/verify_after_fix.attempt_NN.json
 
 Public verdicts are exactly PASSED or FAILED. PASSED is intentionally strict:
 the command must finish successfully, Maven must report BUILD SUCCESS, at least
@@ -749,7 +749,7 @@ def main():
         "tm_" + re.sub(r"[^a-zA-Z0-9]", "_", args.container))
 
     base = container_run_dir(args.container)
-    steps_dir = base / "claude_outputs"
+    steps_dir = base / "codex_outputs"
     steps_dir.mkdir(parents=True, exist_ok=True)
     log_path = steps_dir / "verify_after_fix.log"
     verdict_path = steps_dir / "verify_after_fix.verdict"
@@ -757,7 +757,7 @@ def main():
     report_root = _report_root(base, row, args.container_workdir)
     archive_dir = None
     if validation_attempt is not None:
-        archive_dir = steps_dir / "td_validation" / "runs"
+        archive_dir = steps_dir / "validation" / "runs"
         archive_dir.mkdir(parents=True, exist_ok=True)
         _ensure_archive_slot(archive_dir, validation_attempt)
 

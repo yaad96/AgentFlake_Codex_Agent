@@ -22,11 +22,12 @@ __pycache__/
 # VS Code workspace settings — local editor state
 .vscode/
 
-# Claude Code session state — local-only, must not be committed
+# Agent CLI session state — local-only, must not be committed
+.codex/
 .claude/
 
 # Local API keys
-AF_Codex_Agent/.anthropic_api_key
+AF_Codex_Agent/.openai_api_key
 
 # Local Python virtual environment
 .venv/
