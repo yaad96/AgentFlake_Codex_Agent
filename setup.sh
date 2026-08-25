@@ -12,7 +12,7 @@ FORCE_REBUILD_IMAGES=0
 usage() {
   cat <<'USAGE'
 Usage:
-  OPENAI_API_KEY=sk-... bash setup.sh [--build-images]
+  bash setup.sh [--build-images]      # key comes from AF_Codex_Agent/.openai_api_key
 
 Options:
   --build-images          Prebuild all Docker images that have Dockerfiles.
@@ -64,22 +64,31 @@ echo "[setup] installing Python dependencies"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$PROJECT_DIR/requirements.txt"
 
-if [[ -n "${OPENAI_API_KEY:-}" ]]; then
-  echo "[setup] storing OpenAI API key in AF_Codex_Agent/.openai_api_key"
+# .openai_api_key is the single source of truth for the API key, and setup
+# must never clobber it. It previously overwrote the file from an exported
+# OPENAI_API_KEY, which silently replaced a working key with a stale one.
+# The env var is only ever used to SEED a key file that does not exist yet.
+if [[ -s "$PROJECT_DIR/.openai_api_key" ]]; then
+  echo "[setup] using existing AF_Codex_Agent/.openai_api_key (left untouched)"
+  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    echo "[setup] NOTE: OPENAI_API_KEY is exported but is IGNORED; the key file wins."
+    echo "[setup]       To change the key, edit AF_Codex_Agent/.openai_api_key."
+  fi
+elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
+  echo "[setup] seeding AF_Codex_Agent/.openai_api_key from OPENAI_API_KEY (file was absent)"
   umask 077
   printf '%s\n' "$OPENAI_API_KEY" > "$PROJECT_DIR/.openai_api_key"
-elif [[ ! -s "$PROJECT_DIR/.openai_api_key" ]]; then
+else
   cat >&2 <<'MSG'
 ERROR: no OpenAI API key found.
 
-Run setup like this:
-  OPENAI_API_KEY=sk-... bash setup.sh --build-images
+Create AF_Codex_Agent/.openai_api_key with the key on the first line:
+  printf '%s\n' 'sk-proj-...' > AF_Codex_Agent/.openai_api_key
 
-Or create AF_Codex_Agent/.openai_api_key yourself.
+The key is ALWAYS read from that file. Exporting OPENAI_API_KEY does not
+work at run time -- it is ignored by design.
 MSG
   exit 1
-else
-  echo "[setup] using existing AF_Codex_Agent/.openai_api_key"
 fi
 
 if [[ "$SKIP_DOCKER_CHECK" != "1" ]]; then

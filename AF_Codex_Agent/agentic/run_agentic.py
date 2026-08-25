@@ -33,7 +33,8 @@ Note: `codex exec` has no turn cap or cost ceiling, so --max-iterations is
 accepted but ignored (a warning is logged). The effective bound on a run is
 --cli-timeout-s.
 
-OPENAI_API_KEY is read from the environment first, then AF_Codex_Agent/.openai_api_key via agentic_config.py.
+The API key is read ONLY from AF_Codex_Agent/.openai_api_key. An exported
+OPENAI_API_KEY is deliberately ignored.
 """
 
 from __future__ import annotations
@@ -75,14 +76,11 @@ def resolve_model(alias: str) -> tuple[str, str]:
 
 
 def get_api_key(provider: str = "openai") -> tuple[str, str]:
-    """Return (api_key, source) for the Codex CLI backend."""
-    env_val = os.environ.get("OPENAI_API_KEY", "").strip()
-    config_val = (agentic_config.OPENAI_API_KEY or "").strip()
-    if env_val:
-        return env_val, "env"
-    if config_val:
-        return config_val, "config"
-    return "", ""
+    """Return (api_key, source) for the Codex CLI backend.
+
+    Always the key file. An exported OPENAI_API_KEY is ignored by design.
+    """
+    return agentic_config.require_openai_api_key(), "key file"
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +155,11 @@ def main() -> None:
 
         api_key, source = get_api_key(provider)
         if not api_key:
-            sys.exit(f"ERROR: No OPENAI_API_KEY found for '{model_id}'.\n"
-                     "       Set OPENAI_API_KEY in agentic_config.py or export it as "
-                     "an environment variable.")
+            sys.exit(f"ERROR: no API key for '{model_id}'.\n"
+                     "       Put the key in AF_Codex_Agent/.openai_api_key "
+                     "(first non-comment line).\n"
+                     "       Exporting OPENAI_API_KEY will NOT work -- it is "
+                     "ignored by design.")
 
         resolved.append((alias, model_id, provider))
         key_display = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"

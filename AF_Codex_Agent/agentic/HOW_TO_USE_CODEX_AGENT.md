@@ -27,10 +27,45 @@ and routes to one of:
 
 ## API Key
 
-The key is loaded in this order:
+The key is read from **`AF_Codex_Agent/.openai_api_key` and nowhere else** --
+its first non-comment, non-blank line.
 
-1. `OPENAI_API_KEY` from the shell.
-2. `AF_Codex_Agent/.openai_api_key`.
+An `OPENAI_API_KEY` exported in the shell is **ignored**, and every entry point
+says so when it sees one:
+
+```
+[setup] NOTE: exported OPENAI_API_KEY ignored; using .../.openai_api_key
+```
+
+This is deliberate. The old order was env-first, file-as-fallback, and a stale
+key exported from `~/.zshrc` silently shadowed the file: every run billed an
+exhausted account while the file being edited -- and every manual `curl` test
+-- used a working one. The symptom was "no credits" on an account that had
+credits, and it cost two days.
+
+To change the key, edit the file. Nothing else works. `setup.sh` will not
+overwrite an existing key file; it only seeds one that is absent.
+
+Check which key is live, without printing it:
+
+```bash
+head -1 AF_Codex_Agent/.openai_api_key | tr -d '[:space:]' | wc -c   # expect 164
+```
+
+Pre-flight the account before a long batch (free, bills nothing):
+
+```bash
+KEY=$(head -1 AF_Codex_Agent/.openai_api_key | tr -d '[:space:]')
+curl -sS -o /tmp/r.json -w 'http=%{http_code}\n' \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.4","input":"hi","max_output_tokens":16}' \
+  https://api.openai.com/v1/responses; cat /tmp/r.json
+```
+
+`200` = ready. `401` = wrong or truncated key. `429 credit_balance_exhausted` =
+the account has no credits (note this bills nothing, so it leaves **no usage
+record** -- an empty usage dashboard is consistent with this error, not
+evidence against it).
 
 The key file is ignored by Git.
 

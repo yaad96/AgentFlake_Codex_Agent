@@ -22,7 +22,7 @@
 #   ./run_agentic_od.sh <result_container> [options]
 #
 # Requires:
-#   OPENAI_API_KEY in the environment or .openai_api_key + install AF_Codex_Agent/requirements.txt
+#   the key in .openai_api_key (an exported OPENAI_API_KEY is ignored) + install AF_Codex_Agent/requirements.txt
 # ============================================================
 
 set -euo pipefail
@@ -68,13 +68,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPROFLAKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OPENAI_API_KEY_FILE="$REPROFLAKE_DIR/.openai_api_key"
 
-if [[ -z "${OPENAI_API_KEY:-}" && -f "$OPENAI_API_KEY_FILE" ]]; then
-  OPENAI_API_KEY="$(sed -n "s/^[[:space:]]*//; s/[[:space:]]*$//; /^[#]/d; /^$/d; p; q" "$OPENAI_API_KEY_FILE")"
+# The key ALWAYS comes from the key file. An exported OPENAI_API_KEY is
+# ignored and overwritten here: a stale export silently shadowing the file
+# made every run bill an exhausted account while the file (and every manual
+# curl test) used a working one.
+if [[ -f "$OPENAI_API_KEY_FILE" ]]; then
+  _file_key="$(sed -n "s/^[[:space:]]*//; s/[[:space:]]*$//; /^[#]/d; /^$/d; p; q" "$OPENAI_API_KEY_FILE")"
+  if [[ -n "${OPENAI_API_KEY:-}" && "${OPENAI_API_KEY:-}" != "$_file_key" ]]; then
+    echo "[setup] NOTE: exported OPENAI_API_KEY ignored; using $OPENAI_API_KEY_FILE"
+  fi
+  OPENAI_API_KEY="$_file_key"
   export OPENAI_API_KEY
+  unset _file_key
 fi
 
 if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  echo "ERROR: OPENAI_API_KEY is required. Export it or put it in $OPENAI_API_KEY_FILE."; exit 1
+  echo "ERROR: no API key in $OPENAI_API_KEY_FILE. Exporting OPENAI_API_KEY will NOT work -- it is ignored by design."; exit 1
 fi
 
 DATA_ROOT="$REPROFLAKE_DIR/data/$RESULT_CONTAINER"

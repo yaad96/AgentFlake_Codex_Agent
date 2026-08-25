@@ -6,7 +6,9 @@ Every value here can also be overridden at run time via CLI flags or env vars
 (env vars always take precedence over values set in this file):
 
   CLI flags:  --max-iterations, --model   on run_agentic.py / agentic_codex_cli.py
-  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL, OPENAI_API_KEY
+  Env vars:   AGENTIC_MAX_ITERATIONS, AGENTIC_MODEL
+
+The API key is deliberately NOT an env var. See require_openai_api_key().
 """
 
 from pathlib import Path
@@ -32,7 +34,33 @@ def _read_secret_file(path: Path) -> str:
 # Leave the file empty to rely only on the environment variable.
 # ===========================================================================
 
-OPENAI_API_KEY: str = _read_secret_file(OPENAI_API_KEY_FILE)   # "sk-..." 
+OPENAI_API_KEY: str = _read_secret_file(OPENAI_API_KEY_FILE)
+
+
+def require_openai_api_key() -> str:
+    """The API key, read only from .openai_api_key. Exits if unusable.
+
+    Any OPENAI_API_KEY in the environment is ignored on purpose; when one is
+    present and differs from the file, that is announced rather than silently
+    preferred, because silently preferring it is exactly the bug this function
+    exists to prevent.
+    """
+    import os
+    import sys
+
+    key = (OPENAI_API_KEY or "").strip()
+    env_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if env_key and env_key != key:
+        print(f"[config] NOTE: OPENAI_API_KEY is set in the environment but is "
+              f"being IGNORED (...{env_key[-4:]}); the key is always read from "
+              f"{OPENAI_API_KEY_FILE}", file=sys.stderr, flush=True)
+    if not key:
+        sys.exit(
+            f"ERROR: no API key in {OPENAI_API_KEY_FILE}.\n"
+            f"       Write the key into that file (first non-comment line).\n"
+            f"       Exporting OPENAI_API_KEY will NOT work -- it is ignored "
+            f"by design.")
+    return key   # "sk-..." 
 
 
 # ===========================================================================
@@ -70,8 +98,15 @@ CODEX_MODELS: dict = {
 #   gpt-5.6-luna                     ... + max
 #   gpt-5.6-sol / gpt-5.6-terra      ... + max, ultra
 # Note there is no "minimal" level on any current model.
-REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")
-MODEL_REASONING_EFFORT: str = "high"
+# "default" is a sentinel, not a level: it omits -c model_reasoning_effort
+# entirely and lets the model's own default apply. Per `codex debug models`
+# that is currently medium for gpt-5.2/5.4/5.5 and low for gpt-5.6-sol.
+#
+# Prefer an explicit level for benchmark runs. "default" is whatever the
+# provider ships today, so it can change under you between runs and makes a
+# published result harder to reproduce.
+REASONING_EFFORTS = ("default", "low", "medium", "high", "xhigh", "max", "ultra")
+MODEL_REASONING_EFFORT: str = "default"
 
 # Reasoning SUMMARY visibility, forwarded via `-c model_reasoning_summary=...`.
 # One of: "auto" | "concise" | "detailed" | "none".

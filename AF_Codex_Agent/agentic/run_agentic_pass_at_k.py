@@ -23,7 +23,9 @@ Run output layout:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
+import fcntl
 import json
 import math
 import os
@@ -852,6 +854,33 @@ def next_run_number(runs_root: Path) -> int:
     return highest + 1
 
 
+@contextlib.contextmanager
+def _summary_lock():
+    """Serialise read-modify-write of the shared summary across processes.
+
+    Complete_Containers_Summary.csv is rewritten wholesale (read every row,
+    append, replace the file). Two pass@k processes finishing at the same
+    time would each read the pre-existing rows and the later writer would
+    silently drop the earlier one's. That matters as soon as containers are
+    run in parallel batches, which is the intended use on the VM.
+
+    The lock file lives beside the CSV and is never deleted -- unlinking it
+    would let a second process lock a stale inode and defeat the exclusion.
+    """
+    lock_path = COMPLETE_SUMMARY_FILE.with_suffix(
+        COMPLETE_SUMMARY_FILE.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_path, "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def append_complete_summary(rows):
     """Append per-run rows to the shared Complete Containers Summary.csv.
     Tagged with rv_traces_used='agentic' so the agentic rows are visually
@@ -892,6 +921,11 @@ def append_complete_summary(rows):
             "files_changed": r.get("files_changed", 0),
         })
 
+    with _summary_lock():
+        _append_complete_summary_locked(new_row_dicts, len(rows))
+
+
+def _append_complete_summary_locked(new_row_dicts, n_rows):
     existing_header = []
     if COMPLETE_SUMMARY_FILE.is_file() and COMPLETE_SUMMARY_FILE.stat().st_size > 0:
         with open(COMPLETE_SUMMARY_FILE, encoding="utf-8", newline="") as f:
@@ -930,7 +964,7 @@ def append_complete_summary(rows):
             writer.writerows(existing_rows)
             writer.writerows(new_row_dicts)
         tmp.replace(COMPLETE_SUMMARY_FILE)
-    print(f"[wrapper] appended {len(rows)} row(s) to "
+    print(f"[wrapper] appended {n_rows} row(s) to "
           f"{COMPLETE_SUMMARY_FILE.name}")
 
 
@@ -984,12 +1018,12 @@ def main():
 
     row, test_type, script = preflight(args.container)
 
+    # Read the key from the key file only, then force it into the environment
+    # the child processes inherit -- overwriting whatever the shell exported.
+    # A stale exported key silently shadowing the file is exactly the bug this
+    # guards against.
     api_key_var = _api_key_var(args.model)
-    api_key = (os.environ.get(api_key_var) or
-               getattr(agentic_config, "OPENAI_API_KEY", "") or "").strip()
-    if not api_key:
-        sys.exit(f"ERROR: {api_key_var} env var not set and no key found in config "
-                 f"(required for model '{args.model}')")
+    api_key = agentic_config.require_openai_api_key()
     os.environ[api_key_var] = api_key
 
     runs_root = DATA_DIR / args.container

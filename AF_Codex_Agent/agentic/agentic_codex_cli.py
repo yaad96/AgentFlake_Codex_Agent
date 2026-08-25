@@ -1106,7 +1106,10 @@ def run_agent_in_container(docker_container: str, model: str,
     # continuations: inside a Python f-string a trailing "\" would be eaten as a
     # Python line continuation, silently joining the shell lines.
     codex_flags = ["--model", shlex.quote(str(model))]
-    if reasoning_effort:
+    # "default" (or empty) means: do not pass the flag at all, so the model's
+    # own default_reasoning_level applies. Passing the literal string
+    # "default" would not work -- it is not a level Codex accepts.
+    if reasoning_effort and reasoning_effort != "default":
         codex_flags += [
             "-c", shlex.quote(f"model_reasoning_effort={reasoning_effort}")]
     if MODEL_REASONING_SUMMARY:
@@ -1159,25 +1162,13 @@ cd /app/work/Flaky
 #   repo at an external GIT_DIR, so the agent's cwd is deliberately not a repo.
 timeout -k 30s {AGENT_TIMEOUT_S}s codex exec "$(cat /app/work/{input_rel}/prompt_user.txt)" {flag_str} > {out}/trial.ndjson 2>> {out}/codex.stderr
 """
-    # Auth for the in-container `codex` CLI. Prefer an explicit env export;
-    # otherwise fall back to AF_Codex_Agent/.openai_api_key via
-    # agentic_config.OPENAI_API_KEY. Without this the agent runs
-    # UNAUTHENTICATED and silently emits an empty patch that is then misscored
-    # as a FAILED repair. Fail closed with a clear message instead of burning
-    # a run.
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        try:
-            from agentic_config import OPENAI_API_KEY as _CFG_KEY  # type: ignore  # noqa: E402
-            api_key = (_CFG_KEY or "").strip()
-        except Exception:
-            api_key = ""
-    if not api_key:
-        sys.exit("ERROR: no OPENAI_API_KEY in the environment or "
-                 "AF_Codex_Agent/.openai_api_key — the Codex agent cannot "
-                 "authenticate and would emit an empty patch scored as a "
-                 "false FAILED. Export OPENAI_API_KEY or put the key in "
-                 "AF_Codex_Agent/.openai_api_key, then re-run.")
+    # Auth for the in-container `codex` CLI. The key comes ONLY from
+    # AF_Codex_Agent/.openai_api_key; an OPENAI_API_KEY exported in the shell
+    # is ignored (see agentic_config.require_openai_api_key). Without a usable
+    # key the agent runs UNAUTHENTICATED and silently emits an empty patch
+    # that is then misscored as a FAILED repair, so this fails closed.
+    from agentic_config import require_openai_api_key  # noqa: E402
+    api_key = require_openai_api_key()
     cmd = ["docker", "exec",
            "-e", f"OPENAI_API_KEY={api_key}",
            docker_container, "bash", "-c", inner]
