@@ -106,8 +106,17 @@ AGENT_TIMEOUT_S = 2400
 # -- even when the Java hunk applied cleanly. apply_fix records "no layer landed
 # the fix", Flaky/ is restored to pristine, and a perfectly good repair is
 # scored FAILED. Applies to every test type, not just TD.
+# Runtime logs must never enter the evaluator baseline. If they do, the test
+# run rewrites them and `git apply` aborts with "does not match index",
+# discarding a patch that applied to the source files perfectly well. Observed
+# on crane4j-core, which writes crane4j-core/logs/notify-subscription.log
+# during its tests.
+#
+# The negation keeps *.log files that live under a src/ tree -- those are test
+# fixtures/resources the agent may legitimately need to see and edit.
 GITIGNORE_BODY = ("target/\n**/target/\n*.class\n*.jar\n*.war\n*.ear\n*.nar\n"
                   ".traces/\ntraces.txt\n.nondex/\n"
+                  "logs/\n**/logs/\n*.log\n!**/src/**/*.log\n"
                   ".DS_Store\n**/.DS_Store\n._*\n")
 
 EVALUATION_IGNORED_DIRS = {".git", "target", ".gradle", ".idea"}
