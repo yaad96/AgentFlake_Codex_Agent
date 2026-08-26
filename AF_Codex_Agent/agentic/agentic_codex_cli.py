@@ -1923,6 +1923,20 @@ def _td_audit_victim_oracle(row: dict, module: str, pristine: Path,
 
 
 
+def _trace_config_flag(inputs: Path, key: str):
+    """Read one flag from trace_config.json, or None when absent.
+
+    Only the nio runner writes fixed_wrapper_ok, so this stays None for the
+    other test types rather than inventing a value.
+    """
+    try:
+        doc = json.loads((inputs / "trace_config.json").read_text(
+            encoding="utf-8"))
+    except Exception:
+        return None
+    return doc.get(key) if isinstance(doc, dict) else None
+
+
 def current_run_label() -> str:
     return (os.environ.get("AGENTIC_RUN_LABEL") or "run_01").strip()
 
@@ -3052,6 +3066,11 @@ def main():
         # Codex has no temperature knob; reasoning effort is the analogous
         # sampling control and is what the summary should report.
         "reasoning_effort": args.reasoning_effort,
+        # NIO only: did the DATASET's reference fix satisfy the wrapper in this
+        # environment? Recorded, never gated on -- the agent is judged on its
+        # own patch. False means the shipped Fixed.patch does not hold here, so
+        # a PASS is the agent finding a fix the dataset does not have.
+        "fixed_wrapper_ok": _trace_config_flag(inputs, "fixed_wrapper_ok"),
         "test_type": test_type,
         "module": row.get("module"),
         "polluter": row.get("polluter/state setter"),

@@ -362,15 +362,31 @@ parse_summary() {
 
 read -r FT FF FE <<< "$(parse_summary "$DATA_DIR/traces-fixed/mvn.log")"
 echo "[sanity ] Fixed+wrapper:  Tests=$FT Failures=$FF Errors=$FE"
+# Fixed+wrapper is an OBSERVATION about the dataset's reference patch, not a
+# statement about the agent. Whether the shipped Fixed.patch happens to satisfy
+# "second invocation should pass" in this environment is independent of whether
+# the agent can produce a patch that does. AgenticFlaky never runs this check
+# and repairs several containers whose reference fix does not hold here, so
+# gating on it scored this pipeline under a stricter rule than the tools it is
+# compared against.
+#
+# It is still run and recorded (fixed_wrapper_ok in trace_config.json ->
+# meta.json) so a run where the reference fix failed stays identifiable.
+# The real gate remains Flaky+wrapper reproducing the NIO behaviour below.
 if (( FT < 1 || FF + FE >= 1 )); then
-  echo "ERROR: Fixed+wrapper did not pass cleanly — pipeline broken"; exit 1
+  FIXED_WRAPPER_OK=false
+  echo "[sanity ] WARNING: Fixed+wrapper did not pass cleanly (Tests=$FT Failures=$FF Errors=$FE)."
+  echo "[sanity ]          The dataset's reference fix does not hold in this environment."
+  echo "[sanity ]          Continuing: the agent is judged on its own patch, not this one."
+else
+  FIXED_WRAPPER_OK=true
 fi
 read -r KT KF KE <<< "$(parse_summary "$DATA_DIR/traces-flaky/mvn.log")"
 echo "[sanity ] Flaky+wrapper:  Tests=$KT Failures=$KF Errors=$KE"
 if (( KT < 1 || KF + KE < 1 )); then
   echo "ERROR: Flaky+wrapper did not exhibit NIO behaviour — bug not reproduced"; exit 1
 fi
-echo "[sanity ] OK — Fixed passed, Flaky failed (NIO reproduced)"
+echo "[sanity ] OK — Flaky failed (NIO reproduced); fixed_wrapper_ok=$FIXED_WRAPPER_OK"
 
 mkdir -p "$CODEX_INPUTS_DIR" "$CODEX_OUTPUTS_DIR"
 
@@ -391,6 +407,7 @@ cat > "$CODEX_INPUTS_DIR/trace_config.json" <<JSONEOF
   "nondex_runs": 0,
   "wrapper_fqcn": "$WRAPPER_FQCN",
   "surefire_version": "$SUREFIRE_VER",
+  "fixed_wrapper_ok": $FIXED_WRAPPER_OK,
   "tracemop_ready": false
 }
 JSONEOF

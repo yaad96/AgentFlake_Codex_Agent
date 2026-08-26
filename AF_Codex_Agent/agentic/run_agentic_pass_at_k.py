@@ -757,6 +757,9 @@ def parse_run(per_run_dir: Path, container, test_type, run_n, model="codex"):
         "codex_turns": int(counts.get("turns")
                            or usage_blob.get("num_turns") or 0),
         "reasoning_effort": meta.get("reasoning_effort") or "",
+        # nio only: False = the dataset's own fix did not hold in this
+        # environment, so a PASS means the agent found one the dataset lacks.
+        "fixed_wrapper_ok": meta.get("fixed_wrapper_ok"),
         "agent_error": (usage_blob.get("error")
                         or usage_blob.get("item_errors") or ""),
     }
@@ -808,6 +811,7 @@ CSV_COLS = [
     "evaluation_incomplete",
     "agent_actions", "commands_run", "files_changed",
     "reasoning_chunks", "agent_messages", "codex_turns", "reasoning_effort",
+    "fixed_wrapper_ok",
     "input_tokens_total", "output_tokens_total", "total_tokens",
     "llm_finish_reason", "elapsed_llm_seconds", "elapsed_total_seconds",
     "apply_layer", "apply_path_rewritten", "apply_imports_inferred",
