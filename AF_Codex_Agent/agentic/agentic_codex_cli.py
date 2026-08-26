@@ -894,6 +894,19 @@ def _remove_evaluator_git_metadata(work_tree: Path) -> None:
             f"evaluator Git metadata still exists after removal: {git_path}")
 
 
+
+def _clear_directory_contents(path: Path) -> None:
+    """Empty a directory without removing the directory itself.
+
+    Preserves the inode so a container bind-mount targeting it stays valid.
+    """
+    for child in Path(path).iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
 def _replace_tree_from(source: Path, dest: Path, *, docker_container: str = "",
                        container_dest: str = "", symlinks: bool = False,
                        label: str = "tree restore") -> None:
@@ -903,6 +916,14 @@ def _replace_tree_from(source: Path, dest: Path, *, docker_container: str = "",
     if not source.is_dir():
         raise RestoreTreeError(f"{label}: source tree missing: {source}")
 
+    # dest is often a bind-mount TARGET inside a running container (TD mounts
+    # $DATA_DIR/Flaky directly at /app/work/Flaky). rmtree'ing it and copying a
+    # fresh tree back replaces the directory INODE, which orphans the
+    # container's mount: every later `docker exec` in that directory dies with
+    # "Error occurred during initialization of VM / Properties init: Could not
+    # determine current working directory", losing a run whose agent work has
+    # already been paid for. So clear the CONTENTS and refill in place -- the
+    # mountpoint itself is never unlinked.
     notes = []
     if dest.exists():
         for attempt in (1, 2):
@@ -911,16 +932,19 @@ def _replace_tree_from(source: Path, dest: Path, *, docker_container: str = "",
                 if note:
                     notes.append(f"ownership repair attempt {attempt}: {note}")
             try:
-                shutil.rmtree(dest)
+                _clear_directory_contents(dest)
             except Exception as exc:
-                notes.append(f"rmtree attempt {attempt}: {exc!r}")
+                notes.append(f"clear attempt {attempt}: {exc!r}")
                 continue
             break
+    else:
+        dest.mkdir(parents=True, exist_ok=True)
 
-    if dest.exists():
+    leftovers = sorted(p.name for p in dest.iterdir()) if dest.is_dir() else []
+    if leftovers:
         detail = _path_snapshot(dest)
         msg = [
-            f"{label}: failed to remove existing tree before restore: {dest}",
+            f"{label}: failed to empty existing tree before restore: {dest}",
             "This usually means Docker left root-owned files in the bind mount.",
             f"remaining entries: {detail}",
         ]
@@ -929,7 +953,12 @@ def _replace_tree_from(source: Path, dest: Path, *, docker_container: str = "",
         raise RestoreTreeError("\n".join(msg))
 
     try:
-        shutil.copytree(source, dest, symlinks=symlinks)
+        for child in source.iterdir():
+            target = dest / child.name
+            if child.is_dir() and not child.is_symlink():
+                shutil.copytree(child, target, symlinks=symlinks)
+            else:
+                shutil.copy2(child, target, follow_symlinks=not symlinks)
     except Exception as exc:
         raise RestoreTreeError(
             f"{label}: failed to copy {source} -> {dest}: {exc!r}") from exc
