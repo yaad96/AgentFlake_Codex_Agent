@@ -428,11 +428,18 @@ PRETTY_TYPE = {
 # agentic_verify._build_command per type, so the agent self-verifies on the same
 # command that produces the official verdict.
 MVNOPTS_OD = ('-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip '
+              # Spring Boot gates checkstyle on its own ${disable.checks}, which
+              # -Dcheckstyle.skip does not control; without this the build fails
+              # on style violations unrelated to flakiness.
+              '-Ddisable.checks=true '
               '-Drat.skip -Denforcer.skip -Dmaven.javadoc.skip')
 MVNOPTS_ID = (
     '-Ddependency-check.skip=true -Dgpg.skip=true -DfailIfNoTests=false '
     '-Dskip.installnodenpm -Dskip.npm -Dskip.yarn -Dlicense.skip '
-    '-Dcheckstyle.skip -Drat.skip -Denforcer.skip -Danimal.sniffer.skip '
+    '-Dcheckstyle.skip -Ddisable.checks=true '  # disable.checks is Spring Boot's own
+    # checkstyle gate; -Dcheckstyle.skip does not control it and the build fails
+    # on style violations that have nothing to do with flakiness.
+    '-Drat.skip -Denforcer.skip -Danimal.sniffer.skip '
     '-Dmaven.javadoc.skip -Dfindbugs.skip -Dwarbucks.skip -Dmodernizer.skip '
     '-Dimpsort.skip -Dmdep.analyze.skip -Dpgpverify.skip -Dxml.skip '
     '-Dcobertura.skip=true -Dspotless.skip=true -Dspotless.check.skip=true '

@@ -272,7 +272,7 @@ docker run -d "${DOCKER_PLATFORM_ARGS[@]}" --name "$CONTAINER" \
 # ============================================================
 # STEP 3 — Run Flaky to capture initial failure log.
 # ============================================================
-MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip'
+MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip -Ddisable.checks=true'
 
 echo "[step 3 ] /app/work/Flaky -> /app/work/traces-flaky (failure log)"
 docker exec "$CONTAINER" bash -c "

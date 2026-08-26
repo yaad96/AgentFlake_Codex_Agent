@@ -275,7 +275,7 @@ docker run -d "${DOCKER_PLATFORM_ARGS[@]}" --name "$CONTAINER" \
   "$IMAGE" tail -f /dev/null >/dev/null
 
 # STEP 3 — Run FlakyCodeChange to capture failure log.
-MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip'
+MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip -Ddisable.checks=true'
 
 echo "[step 3 ] /app/work/FlakyCodeChange -> /app/work/traces-flakycc (failure log)"
 docker exec "$CONTAINER" bash -c "
