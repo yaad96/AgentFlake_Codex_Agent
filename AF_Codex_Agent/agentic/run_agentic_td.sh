@@ -275,7 +275,13 @@ docker run -d "${DOCKER_PLATFORM_ARGS[@]}" --name "$CONTAINER" \
   "$IMAGE" tail -f /dev/null >/dev/null
 
 # STEP 3 — Run FlakyCodeChange to capture failure log.
-MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip -Ddisable.checks=true'
+# -DargLine= : surefire:test invoked as a standalone GOAL never runs the
+# initialize phase, so jacoco's prepare-agent never defines ${argLine}. A pom
+# whose <argLine> references it then hands the literal string to the forked JVM,
+# which dies at once -- "forked VM terminated without properly saying goodbye",
+# Tests run: 0, and the flake looks unreproducible. Defining it empty lets the
+# rest of the argLine (e.g. -ea -Xmx3g) survive. Seen on tdincubatoruniffle1.
+MVNOPTS='-DfailIfNoTests=false -Dgpg.skip=true -Dcheckstyle.skip -Drat.skip -Denforcer.skip -Dmaven.javadoc.skip -Ddisable.checks=true -DargLine='
 
 echo "[step 3 ] /app/work/FlakyCodeChange -> /app/work/traces-flakycc (failure log)"
 docker exec "$CONTAINER" bash -c "
@@ -283,9 +289,15 @@ docker exec "$CONTAINER" bash -c "
   rm -rf /app/work/traces-flakycc; mkdir -p /app/work/traces-flakycc
   cd /app/work/FlakyCodeChange
   mvn install -DskipTests -pl $MODULE -am -q $MVNOPTS
-  mvn surefire:test \
+  mvn dependency:properties surefire:test \
     -pl $MODULE -Dtest='$VICTIM' \
     $MVNOPTS 2>&1 | tee /app/work/traces-flakycc/mvn.log || true
+  if grep -q 'Could not find goal .properties. in plugin' /app/work/traces-flakycc/mvn.log; then
+    echo 'TD: maven-dependency-plugin < 2.2; retrying without dependency:properties'
+    mvn surefire:test \
+      -pl $MODULE -Dtest='$VICTIM' \
+      $MVNOPTS 2>&1 | tee /app/work/traces-flakycc/mvn.log || true
+  fi
 "
 
 # Sanity (HARD GATE): TD FlakyCodeChange MUST reproduce the failure

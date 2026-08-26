@@ -454,7 +454,10 @@ MVNOPTS_ID = (
     '-Dcobertura.skip=true -Dspotless.skip=true -Dspotless.check.skip=true '
     '-Dossindex.skip=true -Dmaven.bundle.plugin.skip=true '
     '-Dmaven.parallel.force=false')
-MVNOPTS_TD = MVNOPTS_OD
+# TD runs surefire:test as a standalone goal, so jacoco's prepare-agent never
+# defines ${argLine} and a pom referencing it crashes the forked JVM. Define
+# it empty; the rest of the pom's argLine still applies.
+MVNOPTS_TD = MVNOPTS_OD + ' -DargLine='
 MVNOPTS_NIO = MVNOPTS_ID + ' -Dfindbugs.skip=true'
 
 # Per-type initial-failure log directory written by the launcher.
@@ -777,7 +780,14 @@ def git(work_tree: Path, *args: str, gitdir: Path = None, check: bool = True):
     the outer Valg repo (which would otherwise stage our edits there)."""
     env = dict(os.environ)
     env["GIT_CEILING_DIRECTORIES"] = str(Path(work_tree).resolve().parent)
-    ident = ["-c", "user.name=agent", "-c", "user.email=agent@local"]
+    # gc.auto=0: this repo exists only so apply_fix.py has a worktree to target.
+    # Auto-gc forks `git gc` in the background, which creates and deletes
+    # .git/gc.pid while we are trying to rmtree the directory -- rmtree lists the
+    # file, gc removes it, rmtree stats it and dies with
+    # "[Errno 2] No such file or directory: 'gc.pid'", killing a run whose agent
+    # work was already paid for. A disposable repo has nothing to gain from gc.
+    ident = ["-c", "user.name=agent", "-c", "user.email=agent@local",
+             "-c", "gc.auto=0", "-c", "gc.autoDetach=false"]
     if gitdir is not None:
         env["GIT_DIR"] = str(gitdir)
         env["GIT_WORK_TREE"] = str(work_tree)
@@ -846,14 +856,39 @@ def _remove_evaluator_git_metadata(work_tree: Path) -> None:
     would turn a successful Maven compile into CANDIDATE_COMPILE_FAILED.
     """
     git_path = Path(work_tree) / ".git"
-    try:
-        if git_path.is_symlink() or git_path.is_file():
-            git_path.unlink()
-        elif git_path.is_dir():
-            shutil.rmtree(git_path)
-    except OSError as exc:
+
+    def _tolerate_vanished(func, path, exc_info):
+        # A file disappearing while we delete the tree is success, not failure:
+        # a background `git gc` can remove .git/gc.pid mid-walk. Anything else
+        # (permissions, EBUSY) still propagates.
+        exc = exc_info[1] if isinstance(exc_info, tuple) else exc_info
+        if isinstance(exc, FileNotFoundError):
+            return
+        raise exc
+
+    last_exc = None
+    for _ in range(3):
+        try:
+            if git_path.is_symlink() or git_path.is_file():
+                git_path.unlink()
+            elif git_path.is_dir():
+                # onexc replaced onerror in 3.12; pass whichever this runtime has.
+                if sys.version_info >= (3, 12):
+                    shutil.rmtree(git_path, onexc=_tolerate_vanished)
+                else:
+                    shutil.rmtree(git_path, onerror=_tolerate_vanished)
+            last_exc = None
+            break
+        except FileNotFoundError:
+            last_exc = None
+            break
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(0.5)
+    if last_exc is not None:
         raise RestoreTreeError(
-            f"could not remove evaluator Git metadata at {git_path}: {exc}") from exc
+            f"could not remove evaluator Git metadata at {git_path}: "
+            f"{last_exc}") from last_exc
     if git_path.exists() or git_path.is_symlink():
         raise RestoreTreeError(
             f"evaluator Git metadata still exists after removal: {git_path}")
