@@ -391,6 +391,13 @@ echo "[sanity ] OK — Flaky failed (NIO reproduced); fixed_wrapper_ok=$FIXED_WR
 mkdir -p "$CODEX_INPUTS_DIR" "$CODEX_OUTPUTS_DIR"
 
 # STEP 9.5 — snapshot
+# Tests can leave root-owned files inside the bind mount (HBase's MiniDFSCluster
+# writes build/test/data/dfs/data/* as root, for one), and the host-side cp below
+# then dies with "Permission denied" -- aborting a run that had already
+# reproduced the flake. The chown that already exists later in this script runs
+# far too late to help, so reclaim ownership here, before the snapshot.
+docker exec -u 0 "$CONTAINER" chown -R "$(id -u):$(id -g)" /app/work >/dev/null 2>&1 || true
+
 echo "[step 9.5] snapshotting Flaky/ -> Flaky.pristine"
 rm -rf "$DATA_DIR/Flaky.pristine"
 cp -r "$DATA_DIR/Flaky" "$DATA_DIR/Flaky.pristine"
