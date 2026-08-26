@@ -116,10 +116,19 @@ if [[ "$PROJECT_KEY" == *hadoop* ]]; then
   IMAGE="flaky_base_jdk8_hadoop"
   DOCKERFILE="Dockerfile.hadoop"
 fi
-NONDEX_PLUGIN_VERSION="2.1.1"
-if [[ "$JAVA" == "17" ]]; then
+# NonDex version matters. Older releases can fail to compile a project's test
+# sources, which shows up as maven-compiler-plugin testCompile failing on every
+# NonDex attempt with no Surefire summary at all -- observed on crane4j-core
+# under 2.1.1, while FlakyDoctor builds the same subjects fine on 2.1.7.
+# An explicit NONDEX_PLUGIN_VERSION in the environment always wins, so a single
+# container can be retried on a different version without changing the default
+# for an already-completed batch.
+_NDX_ENV="${NONDEX_PLUGIN_VERSION:-}"
+NONDEX_PLUGIN_VERSION="${_NDX_ENV:-2.1.1}"
+if [[ "$JAVA" == "17" && -z "$_NDX_ENV" ]]; then
   NONDEX_PLUGIN_VERSION="2.1.7"
 fi
+unset _NDX_ENV
 
 DOCKER_PLATFORM_ARGS=()
 if [[ -n "${AGENTIC_DOCKER_PLATFORM:-}" ]]; then
