@@ -2,17 +2,25 @@
 """Which TD containers failed for BUILD reasons, not model reasons?
 
 Answers one question: after the three build-robustness fixes land, how many TD
-containers are worth re-running?  A container only benefits if its run died on a
-Maven gate the fixes remove -- a plugin check we do not skip, a ${argLine} the
-forked JVM could not resolve, or an `install` failure where `test-compile` would
-still have produced test classes.  Everything else is a real model failure and
+containers are worth re-running?  A container only benefits if its build died on
+a Maven gate the fixes remove.  Everything else is a real model failure and
 re-running it changes nothing.
 
-Reads run artifacts and batch logs only; safe to run mid-batch.  Prints a
-per-container verdict with the evidence line that drove the classification, so
-you can spot-check rather than trust it.
+CLASSIFICATION RULE.  The only trustworthy evidence that a build died on a
+plugin is Maven's own failure line:
 
-  REPO=~/AgentFlake_Codex_Agent LOGDIR=~/codex_td_logs python3 td_build_triage.py
+    [ERROR] Failed to execute goal <group>:<artifact>:<ver>:<goal> ...
+
+Mentions of a plugin in `[INFO] --- foo-plugin:1.2:check ---` (it ran), or in
+`Downloading from central: .../foo-plugin.pom` (it was fetched), prove nothing --
+an earlier version of this script matched those and produced ~10 false positives.
+So: find the failing goal, read its artifactId, and bucket on THAT.  A build that
+died on a plugin we cannot skip is reported as NOT recoverable, not silently
+counted as a win.
+
+Reads run artifacts and batch logs only; safe to run mid-batch.
+
+  REPO=~/AgentFlake_Codex_Agent LOGDIR=~/codex_td_logs python3 scripts/td_build_triage.py
 """
 import json, os, re, sys
 from pathlib import Path
@@ -20,52 +28,47 @@ from pathlib import Path
 REPO = Path(os.environ.get("REPO", Path.home() / "AgentFlake_Codex_Agent"))
 DATA = REPO / "AF_Codex_Agent" / "data"
 COHORT = REPO / "AF_Codex_Agent" / "cohorts" / "td.csv"
-LOGDIRS = [Path(os.environ.get("LOGDIR", Path.home() / "codex_td_logs")),
-           Path(str(os.environ.get("LOGDIR", Path.home() / "codex_td_logs")) + "_dry")]
+_LD = str(os.environ.get("LOGDIR", Path.home() / "codex_td_logs"))
+LOGDIRS = [Path(_LD), Path(_LD + "_dry")]
 
-# Each bucket maps to exactly one of the three fixes, so the counts tell you
-# what each fix actually buys.  Ordered: first match wins, most specific first.
-SIGNATURES = [
-    ("ARGLINE", "fix 1: -DargLine= on the official verify path", [
-        r"Could not find or load main class @\{argLine\}",
-        r"@\{argLine\}",
-        r"Unable to find javaagent",
-        r"argLine.*jacoco",
-        r"jacocoagent.*not found",
-    ]),
-    ("PLUGIN_GATE", "fix 2: wider MVNOPTS (spotless/license/findbugs/...)", [
-        r"spotless(-maven-plugin)?[:.].*(check|BUILD FAILURE)",
-        r"Execution .* of goal .*spotless",
-        r"license-maven-plugin|Execution .* of goal .*license",
-        r"findbugs-maven-plugin|Execution .* of goal .*findbugs",
-        r"spotbugs-maven-plugin|Execution .* of goal .*spotbugs",
-        r"modernizer-maven-plugin|Execution .* of goal .*modernizer",
-        r"ossindex-maven-plugin|Execution .* of goal .*ossindex",
-        r"animal-sniffer|impsort|pgpverify|warbucks",
-        r"Execution .* of goal .*(checkstyle|rat|enforcer).*failed",
-    ]),
-    ("INSTALL_ONLY", "fix 3: mvn test-compile third tier", [
-        r"Failed to execute goal .*maven-install-plugin",
-        r"BUILD FAILURE.*\n(?:.*\n){0,20}?.*maven-(install|deploy)-plugin",
-        r"Could not resolve dependencies for project",
-        r"The packaging for this project did not assign a file",
-    ]),
+# Maven's definitive failure line. Everything downstream keys off the artifactId
+# it names -- never off a plugin merely appearing in the log.
+FAILED_GOAL = re.compile(
+    r"Failed to execute goal\s+([\w.\-]+):([\w.\-]+):([\w.\-]+):([\w.\-]+)", re.I)
+# Fallback for the shorter prefix-resolved form: "Failed to execute goal foo:bar"
+FAILED_GOAL_SHORT = re.compile(r"Failed to execute goal\s+([\w.\-]+):([\w.\-]+)\s", re.I)
+
+# Static-analysis / hygiene plugins that a -D<x>.skip flag disables outright.
+# These are what fix 2 (wider MVNOPTS) buys.
+SKIPPABLE = {
+    "spotless-maven-plugin", "license-maven-plugin", "findbugs-maven-plugin",
+    "spotbugs-maven-plugin", "modernizer-maven-plugin", "ossindex-maven-plugin",
+    "maven-checkstyle-plugin", "apache-rat-plugin", "maven-enforcer-plugin",
+    "animal-sniffer-maven-plugin", "impsort-maven-plugin", "warbucks-maven-plugin",
+    "pgpverify-maven-plugin", "maven-pmd-plugin", "japicmp-maven-plugin",
+    "maven-javadoc-plugin", "xml-maven-plugin", "dependency-check-maven",
+    "maven-dependency-plugin", "forbiddenapis", "checkstyle", "spotbugs",
+    "maven-antrun-plugin", "jacoco-maven-plugin", "maven-gpg-plugin",
+}
+# Fix 3 territory: install/packaging/resolution died, but test sources may still
+# compile via `mvn test-compile`.
+INSTALLISH = {
+    "maven-install-plugin", "maven-deploy-plugin", "maven-shade-plugin",
+    "maven-assembly-plugin", "maven-jar-plugin", "maven-war-plugin",
+}
+# Fix 1 territory: the forked JVM could not start because ${argLine} was unresolved.
+ARGLINE_CRASH = [
+    re.compile(r"Could not find or load main class @\{argLine\}"),
+    re.compile(r"Error: Could not find or load main class @"),
+    re.compile(r"Unrecognized option: @\{argLine\}"),
+    re.compile(r"The forked VM terminated without properly saying goodbye", re.I),
+    re.compile(r"Could not create the Java Virtual Machine", re.I),
 ]
-
-# A container that simply never reproduced is NOT recoverable by these fixes
-# unless one of the signatures above also fired -- the forcing may genuinely not
-# perturb it.  Kept separate so it is never silently counted as a win.
-NOREPRO = [
-    r"did not fail as expected",
-    r"FlakyCodeChange did not fail",
-    r"no Surefire summary",
-    r"EMPTY_PRISTINE_FORCING",
-    r"Tests run: 0",
-]
-
-COMPILED = [(k, why, [re.compile(p, re.I | re.M) for p in pats])
-            for k, why, pats in SIGNATURES]
-NOREPRO_RE = [re.compile(p, re.I) for p in NOREPRO]
+# A container the forcing never perturbed -- not recoverable by any of the fixes.
+NOREPRO = [re.compile(p, re.I) for p in (
+    r"did not fail as expected", r"FlakyCodeChange did not fail",
+    r"no Surefire summary", r"EMPTY_PRISTINE_FORCING",
+)]
 
 
 def containers():
@@ -77,7 +80,6 @@ def containers():
 
 
 def gather_text(container):
-    """Every log that could carry the build failure, newest run first."""
     chunks = []
     cdir = DATA / container
     if cdir.is_dir():
@@ -92,7 +94,7 @@ def gather_text(container):
     for ld in LOGDIRS:
         if not ld.is_dir():
             continue
-        for f in list(ld.glob(f"{container}*.log")) + list(ld.glob(f"*{container}*")):
+        for f in sorted(set(list(ld.glob(f"{container}*.log")) + list(ld.glob(f"*{container}*")))):
             if f.is_file():
                 try:
                     chunks.append(f.read_text(errors="replace"))
@@ -103,86 +105,114 @@ def gather_text(container):
 
 def verdict_of(container):
     cdir = DATA / container
-    if not cdir.is_dir():
-        return "NOT_RUN", 0
-    runs = sorted(cdir.glob("run_*"))
-    if not runs:
-        return "NOT_RUN", 0
-    best, tokens = "INCOMPLETE", 0
-    for rdir in runs:
-        steps = rdir / "codex_outputs"
-        vf = steps / "run_verdict.txt"
+    if not cdir.is_dir() or not list(cdir.glob("run_*")):
+        return "NOT_RUN"
+    best = "INCOMPLETE"
+    for rdir in sorted(cdir.glob("run_*")):
+        vf = rdir / "codex_outputs" / "run_verdict.txt"
         v = vf.read_text(errors="replace").strip() if vf.is_file() else ""
-        if (steps / "usage.json").is_file():
-            try:
-                u = json.loads((steps / "usage.json").read_text())
-                tokens += (u.get("usage") or {}).get("total_tokens", 0) or 0
-            except Exception:
-                pass
         if v == "PASSED":
-            best = "PASSED"
-        elif v == "FAILED" and best != "PASSED":
+            return "PASSED"
+        if v == "FAILED":
             best = "FAILED"
-    return best, tokens
+    return best
+
+
+def failing_goals(text):
+    """Every distinct (artifactId, goal) Maven reported as FAILED."""
+    out = []
+    for m in FAILED_GOAL.finditer(text):
+        out.append((m.group(2), m.group(4), m.group(0)[:150]))
+    if not out:
+        for m in FAILED_GOAL_SHORT.finditer(text):
+            out.append((m.group(1), m.group(2), m.group(0)[:150]))
+    seen, uniq = set(), []
+    for a, g, raw in out:
+        if (a, g) not in seen:
+            seen.add((a, g))
+            uniq.append((a, g, raw))
+    return uniq
+
+
+def classify(text):
+    goals = failing_goals(text)
+    if goals:
+        for art, goal, raw in goals:
+            low = art.lower()
+            if any(s in low for s in SKIPPABLE) or low in SKIPPABLE:
+                # surefire "There are test failures" is the victim failing, not a gate
+                if "surefire" in low:
+                    continue
+                return "PLUGIN_GATE", f"{art}:{goal}", raw
+        for art, goal, raw in goals:
+            if art.lower() in INSTALLISH:
+                return "INSTALL_ONLY", f"{art}:{goal}", raw
+        for art, goal, raw in goals:
+            if "surefire" in art.lower() and any(p.search(text) for p in ARGLINE_CRASH):
+                return "ARGLINE", f"{art}:{goal}", raw
+        art, goal, raw = goals[0]
+        if "surefire" in art.lower():
+            return "MODEL", f"{art}:{goal} (test failed -- expected)", ""
+        return "OTHER_BUILD", f"{art}:{goal}", raw
+    if any(p.search(text) for p in ARGLINE_CRASH):
+        m = next(p.search(text) for p in ARGLINE_CRASH if p.search(text))
+        return "ARGLINE", "forked JVM crash", m.group(0)[:150]
+    if any(p.search(text) for p in NOREPRO):
+        return "NO_REPRO", "forcing did not perturb it", ""
+    if not text.strip():
+        return "NO_LOGS", "no logs on this machine", ""
+    return "MODEL", "genuine repair failure", ""
+
+
+RECOVERABLE = ("PLUGIN_GATE", "INSTALL_ONLY", "ARGLINE")
+FIXNAME = {
+    "ARGLINE": "fix 1: -DargLine= on the official verify path",
+    "PLUGIN_GATE": "fix 2: wider MVNOPTS (spotless/license/findbugs/...)",
+    "INSTALL_ONLY": "fix 3: mvn test-compile third tier",
+}
 
 
 def main():
     rows, buckets = [], {}
     for c in containers():
-        v, tok = verdict_of(c)
+        v = verdict_of(c)
         if v == "PASSED":
-            rows.append((c, v, "-", "already passing", ""))
+            rows.append((c, v, "PASSED", "already passing", ""))
+            buckets.setdefault("PASSED", []).append(c)
             continue
-        text = gather_text(c)
-        hit = None
-        for key, why, pats in COMPILED:
-            for p in pats:
-                m = p.search(text)
-                if m:
-                    line = next((l.strip() for l in text.splitlines()
-                                 if m.group(0).split("\n")[0][:40] in l), m.group(0))
-                    hit = (key, why, line[:150])
-                    break
-            if hit:
-                break
-        if hit:
-            rows.append((c, v, hit[0], hit[1], hit[2]))
-            buckets.setdefault(hit[0], []).append(c)
-        elif not text:
-            rows.append((c, v, "NO_LOGS", "no logs found -- cannot classify", ""))
-            buckets.setdefault("NO_LOGS", []).append(c)
-        elif any(p.search(text) for p in NOREPRO_RE):
-            rows.append((c, v, "NO_REPRO", "forcing did not perturb it", ""))
-            buckets.setdefault("NO_REPRO", []).append(c)
-        else:
-            rows.append((c, v, "MODEL", "genuine repair failure", ""))
-            buckets.setdefault("MODEL", []).append(c)
+        kind, why, ev = classify(gather_text(c))
+        rows.append((c, v, kind, why, ev))
+        buckets.setdefault(kind, []).append(c)
 
-    recoverable = sum(len(buckets.get(k, [])) for k in ("ARGLINE", "PLUGIN_GATE", "INSTALL_ONLY"))
-    print(f"TD BUILD TRIAGE   {len(rows)} containers\n")
-    print(f"  RE-RUN AFTER THE FIXES : {recoverable}")
-    for k, why, _ in SIGNATURES:
-        n = len(buckets.get(k, []))
-        if n:
-            print(f"      {k:<13} {n:>3}   {why}")
-    print(f"  no point re-running    : {len(buckets.get('MODEL', []))} model failures, "
-          f"{len(buckets.get('NO_REPRO', []))} non-reproducing")
+    n_rec = sum(len(buckets.get(k, [])) for k in RECOVERABLE)
+    print(f"TD BUILD TRIAGE   {len(rows)} containers")
+    print("  (classified ONLY on Maven's 'Failed to execute goal' line)\n")
+    print(f"  already passing        : {len(buckets.get('PASSED', []))}")
+    print(f"  RE-RUN AFTER THE FIXES : {n_rec}")
+    for k in RECOVERABLE:
+        if buckets.get(k):
+            print(f"      {k:<13} {len(buckets[k]):>3}   {FIXNAME[k]}")
+    print(f"  not recoverable        : {len(buckets.get('MODEL', []))} model, "
+          f"{len(buckets.get('NO_REPRO', []))} non-reproducing, "
+          f"{len(buckets.get('OTHER_BUILD', []))} build failure we cannot skip")
     if buckets.get("NO_LOGS"):
-        print(f"  UNCLASSIFIED           : {len(buckets['NO_LOGS'])} (no logs on this machine)")
+        print(f"  UNCLASSIFIED           : {len(buckets['NO_LOGS'])} (no logs)")
 
-    for k in ("ARGLINE", "PLUGIN_GATE", "INSTALL_ONLY", "NO_REPRO", "NO_LOGS", "MODEL"):
+    for k in RECOVERABLE + ("OTHER_BUILD", "NO_REPRO", "NO_LOGS", "MODEL"):
         if not buckets.get(k):
             continue
         print(f"\n{k}")
         for c, v, kind, why, ev in rows:
             if kind == k:
-                print(f"  {c[:60]:<62} {v:<10} {ev}")
+                print(f"  {c[:58]:<60} {v:<10} {why}")
+                if ev:
+                    print(f"      {ev}")
 
-    if recoverable:
-        names = [c for k in ("ARGLINE", "PLUGIN_GATE", "INSTALL_ONLY") for c in buckets.get(k, [])]
+    if n_rec:
         print("\nRE-RUN LIST (paste into run_td_batch.sh CONTAINERS=())")
-        for c in names:
-            print(f"  {c}")
+        for k in RECOVERABLE:
+            for c in buckets.get(k, []):
+                print(f"  {c}")
 
 
 if __name__ == "__main__":
