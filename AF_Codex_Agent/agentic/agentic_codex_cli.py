@@ -77,6 +77,7 @@ from td_oracle import (  # type: ignore  # noqa: E402
     apply_reference_forcing,
     build_oracle,
     calibrate_oracle,
+    derive_source_forcing,
 )
 
 # Number of EXTRA passing confirmation runs required after the first PASS —
@@ -2135,6 +2136,32 @@ def main():
     git(flaky, "add", "-A", gitdir=ext_gitdir)
     git(flaky, "commit", "-q", "-m", "baseline", gitdir=ext_gitdir)
 
+    # ---- TD measurability preflight ----------------------------------------
+    # A TD verdict is only ever produced by re-running the victim under the
+    # B -> P timing forcing.  If the dataset ships no such forcing there is no
+    # verdict to be had no matter what the agent writes -- the run would spend a
+    # full agent turn and then score INCOMPLETE at the oracle build.  Bail here,
+    # before any tokens are spent, and report the same INCOMPLETE (no
+    # run_verdict.txt) that the post-hoc path would have reported anyway.
+    if test_type == "td":
+        _p_tree = base / "FlakyCodeChange"
+        if not _p_tree.is_dir():
+            sys.exit("ERROR: TD container has no FlakyCodeChange tree, so the "
+                     "timing forcing cannot be applied and no verdict is "
+                     "reachable. Refusing to spend an agent turn on it.")
+        try:
+            _preflight = derive_source_forcing("pristine", ext_baseline, _p_tree)
+        except OSError as exc:
+            sys.exit(f"ERROR: could not compare the TD protected trees: {exc}")
+        if not _preflight.files:
+            sys.exit("ERROR: EMPTY_PRISTINE_FORCING — this container's "
+                     "B -> FlakyCodeChange delta touches no supported source "
+                     "file, so the victim can never be forced to fail and no "
+                     "verdict is reachable. Refusing to spend an agent turn "
+                     "on it.")
+        log(f"TD preflight: pristine forcing touches "
+            f"{len(_preflight.files)} source file(s)")
+
     # ---- run the agent -----------------------------------------------------
     max_turns = args.max_iterations or os.environ.get("AGENTIC_MAX_ITERATIONS")
     simulated = (os.environ.get(SIMULATED_AGENT_ENV) or "").strip()
@@ -2698,12 +2725,18 @@ def main():
 
         oracle = None
         if validation_ready:
+            # allow_pristine_as_reference: when the dataset ships no F->FP
+            # forcing, stand the B->P forcing in for it rather than discarding
+            # the container. That is exactly (and only) what FlakyDoctor does,
+            # and without it four TD rows cost a full agent run and then score
+            # nothing. A reference forcing that exists but conflicts still
+            # fails closed.
             build_result = build_oracle(ProtectedTrees(
                 pristine=protected_paths["B"],
                 perturbed=protected_paths["P"],
                 fixed=protected_paths["F"],
                 fixed_perturbed=protected_paths["FP"],
-            ))
+            ), allow_pristine_as_reference=True)
             oracle_build_payload = _oracle_outcome_dict(build_result.outcome)
             oracle = build_result.oracle
             if oracle is None or not build_result.outcome.passable:
@@ -3157,6 +3190,10 @@ def main():
         "fixed_wrapper_ok": _trace_config_flag(inputs, "fixed_wrapper_ok"),
         # TD only: integrity findings that are recorded, never gated. Non-null
         # means the check fired; the verdict still comes from the forced run.
+        # "ORACLE_READY_PRISTINE_REFERENCE" means the dataset shipped no F->FP
+        # forcing and the B->P forcing stood in -- the weaker, FlakyDoctor-
+        # equivalent check. Verdicts carrying it should be reported as such.
+        "oracle_ready_code": (oracle_build_payload or {}).get("code"),
         "victim_oracle_flag": locals().get("victim_oracle_flag"),
         "calibration_flag": locals().get("calibration_flag"),
         "test_type": test_type,

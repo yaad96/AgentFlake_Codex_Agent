@@ -31,7 +31,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Protocol, Sequence
@@ -464,7 +464,9 @@ def derive_source_forcing(context: str, base_root: Path, forced_root: Path) -> F
     )
 
 
-def build_oracle(trees: ProtectedTrees) -> OracleBuildResult:
+def build_oracle(trees: ProtectedTrees, *,
+                 allow_pristine_as_reference: bool = False
+                 ) -> OracleBuildResult:
     """Validate and hash B/P/F/FP, then derive both forcing contexts."""
 
     labelled = trees.labelled()
@@ -496,12 +498,26 @@ def build_oracle(trees: ProtectedTrees) -> OracleBuildResult:
             "EMPTY_PRISTINE_FORCING",
             "B -> P changes no supported source file.",
         ))
+    reference_substituted = False
     if not reference.files:
-        return OracleBuildResult(OracleOutcome.incomplete(
-            "EMPTY_REFERENCE_FORCING",
-            "F -> FP changes no supported source file; anchor-removing fixes "
-            "cannot be scored soundly.",
-        ))
+        if not allow_pristine_as_reference:
+            return OracleBuildResult(OracleOutcome.incomplete(
+                "EMPTY_REFERENCE_FORCING",
+                "F -> FP changes no supported source file; anchor-removing fixes "
+                "cannot be scored soundly.",
+            ))
+        # Several TD rows ship no F->FP forcing at all. There is no reference
+        # context to be gamed because there is no reference context, so stand
+        # the independently calibrated B->P forcing in its place -- which is
+        # the ONLY forcing FlakyDoctor ever uses.
+        #
+        # This substitution covers an ABSENT reference forcing only. A reference
+        # forcing that exists but CONFLICTS with the candidate still fails
+        # closed: falling back there would reintroduce the APEX failure mode
+        # where a candidate compensates for the visible B->P delay while
+        # leaving the real defect in place.
+        reference = replace(pristine, context="reference")
+        reference_substituted = True
 
     unsupported = [
         f"{forcing.context}:{delta.path}"
@@ -536,6 +552,12 @@ def build_oracle(trees: ProtectedTrees) -> OracleBuildResult:
         MANIFEST_SCHEMA, tree_manifests, pristine.digest, reference.digest, digest
     )
     oracle = TDOracle(trees, pristine, reference, manifest)
+    if reference_substituted:
+        return OracleBuildResult(OracleOutcome.ready(
+            "ORACLE_READY_PRISTINE_REFERENCE",
+            "No F->FP forcing shipped; the B->P forcing stands in as the "
+            "reference context (FlakyDoctor's only mode).",
+        ), oracle)
     return OracleBuildResult(OracleOutcome.ready(
         "ORACLE_READY",
         "Protected B/P/F/FP manifests and dual forcing contexts are ready.",
