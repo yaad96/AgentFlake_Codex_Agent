@@ -59,10 +59,12 @@ INSTALLISH = {
 # Fix 1 territory: the forked JVM could not start because ${argLine} was unresolved.
 ARGLINE_CRASH = [
     re.compile(r"Could not find or load main class @\{argLine\}"),
-    re.compile(r"Error: Could not find or load main class @"),
     re.compile(r"Unrecognized option: @\{argLine\}"),
-    re.compile(r"The forked VM terminated without properly saying goodbye", re.I),
-    re.compile(r"Could not create the Java Virtual Machine", re.I),
+    re.compile(r"@\{argLine\}"),
+    re.compile(r"Unable to find javaagent"),
+    # The classic jacoco/${argLine} symptom: the agent path never resolved.
+    re.compile(r"Error opening zip file or JAR manifest missing.*jacoco", re.I),
+    re.compile(r"Error occurred during initialization of VM.*javaagent", re.I),
 ]
 # A container the forcing never perturbed -- not recoverable by any of the fixes.
 NOREPRO = [re.compile(p, re.I) for p in (
@@ -152,16 +154,20 @@ def classify(text):
                 return "ARGLINE", f"{art}:{goal}", raw
         art, goal, raw = goals[0]
         if "surefire" in art.lower():
-            return "MODEL", f"{art}:{goal} (test failed -- expected)", ""
+            # The victim failing under the forcing is reproduction working, not a
+            # build gate. Whether it is a MODEL failure depends on whether a run
+            # actually happened -- decided by the caller, which knows the verdict.
+            return "SUREFIRE", f"{art}:{goal}", ""
         return "OTHER_BUILD", f"{art}:{goal}", raw
     if any(p.search(text) for p in ARGLINE_CRASH):
         m = next(p.search(text) for p in ARGLINE_CRASH if p.search(text))
         return "ARGLINE", "forked JVM crash", m.group(0)[:150]
     if any(p.search(text) for p in NOREPRO):
-        return "NO_REPRO", "forcing did not perturb it", ""
+        m = next(p.search(text) for p in NOREPRO if p.search(text))
+        return "NO_REPRO", "forcing did not perturb it", m.group(0)[:150]
     if not text.strip():
         return "NO_LOGS", "no logs on this machine", ""
-    return "MODEL", "genuine repair failure", ""
+    return "SUREFIRE", "no build gate found", ""
 
 
 RECOVERABLE = ("PLUGIN_GATE", "INSTALL_ONLY", "ARGLINE")
@@ -170,49 +176,99 @@ FIXNAME = {
     "PLUGIN_GATE": "fix 2: wider MVNOPTS (spotless/license/findbugs/...)",
     "INSTALL_ONLY": "fix 3: mvn test-compile third tier",
 }
+ORDER = ("PLUGIN_GATE", "INSTALL_ONLY", "ARGLINE", "OTHER_BUILD",
+         "READY_TO_RUN", "NOT_RUN_NO_REPRO", "INCOMPLETE", "NO_LOGS", "MODEL")
+BLURB = {
+    "READY_TO_RUN": "never run; the forcing DOES make the victim fail -> a real verdict is available",
+    "NOT_RUN_NO_REPRO": "never run; the forcing does not perturb it",
+    "MODEL": "ran, agent could not repair it -- re-running changes nothing",
+    "INCOMPLETE": "ran but produced no verdict -- re-run",
+    "OTHER_BUILD": "build died on a plugin we cannot skip",
+}
+
+
+def dump(container, span=2400):
+    """Print the log around each failure so a human can judge the bucket."""
+    text = gather_text(container)
+    if not text.strip():
+        print(f"  no logs for {container}"); return
+    marks = [m.start() for m in re.finditer(
+        r"Failed to execute goal|BUILD FAILURE|ERROR\] .*forcing|did not fail as expected|"
+        r"@\{argLine\}|forked VM terminated|Tests run:", text)]
+    if not marks:
+        print(text[-span:]); return
+    shown = set()
+    for i in marks[:6]:
+        a, b = max(0, i - span // 3), i + span
+        key = a // 500
+        if key in shown:
+            continue
+        shown.add(key)
+        print(f"\n----- {container} @ offset {i} -----")
+        print(text[a:b])
 
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--dump":
+        for c in sys.argv[2:]:
+            dump(c)
+        return 0
+
     rows, buckets = [], {}
     for c in containers():
         v = verdict_of(c)
         if v == "PASSED":
-            rows.append((c, v, "PASSED", "already passing", ""))
-            buckets.setdefault("PASSED", []).append(c)
-            continue
-        kind, why, ev = classify(gather_text(c))
+            kind, why, ev = "PASSED", "already passing", ""
+        else:
+            kind, why, ev = classify(gather_text(c))
+            # A surefire death is only a MODEL failure if a run actually happened.
+            if kind == "SUREFIRE":
+                kind = {"NOT_RUN": "READY_TO_RUN",
+                        "INCOMPLETE": "INCOMPLETE"}.get(v, "MODEL")
+                why = BLURB.get(kind, why)
+            elif kind == "NO_REPRO" and v == "NOT_RUN":
+                kind, why = "NOT_RUN_NO_REPRO", BLURB["NOT_RUN_NO_REPRO"]
         rows.append((c, v, kind, why, ev))
         buckets.setdefault(kind, []).append(c)
 
-    n_rec = sum(len(buckets.get(k, [])) for k in RECOVERABLE)
+    n = lambda k: len(buckets.get(k, []))
+    n_rec = sum(n(k) for k in RECOVERABLE)
     print(f"TD BUILD TRIAGE   {len(rows)} containers")
-    print("  (classified ONLY on Maven's 'Failed to execute goal' line)\n")
-    print(f"  already passing        : {len(buckets.get('PASSED', []))}")
+    print("  (build gates classified ONLY on Maven's 'Failed to execute goal' line)\n")
+    print(f"  PASSED                 : {n('PASSED')}")
     print(f"  RE-RUN AFTER THE FIXES : {n_rec}")
     for k in RECOVERABLE:
-        if buckets.get(k):
-            print(f"      {k:<13} {len(buckets[k]):>3}   {FIXNAME[k]}")
-    print(f"  not recoverable        : {len(buckets.get('MODEL', []))} model, "
-          f"{len(buckets.get('NO_REPRO', []))} non-reproducing, "
-          f"{len(buckets.get('OTHER_BUILD', []))} build failure we cannot skip")
-    if buckets.get("NO_LOGS"):
-        print(f"  UNCLASSIFIED           : {len(buckets['NO_LOGS'])} (no logs)")
+        if n(k):
+            print(f"      {k:<13} {n(k):>3}   {FIXNAME[k]}")
+    print(f"  NEVER RUN, READY       : {n('READY_TO_RUN')}   <- run these regardless of the fixes")
+    print(f"  never run, no repro    : {n('NOT_RUN_NO_REPRO')}")
+    print(f"  incomplete, re-run     : {n('INCOMPLETE')}")
+    print(f"  model failures         : {n('MODEL')}   re-running changes nothing")
+    if n('OTHER_BUILD'):
+        print(f"  unskippable build fail : {n('OTHER_BUILD')}")
+    if n('NO_LOGS'):
+        print(f"  unclassified (no logs) : {n('NO_LOGS')}")
 
-    for k in RECOVERABLE + ("OTHER_BUILD", "NO_REPRO", "NO_LOGS", "MODEL"):
+    for k in ORDER:
         if not buckets.get(k):
             continue
-        print(f"\n{k}")
+        head = BLURB.get(k) or FIXNAME.get(k) or ""
+        print(f"\n{k}" + (f"   -- {head}" if head else ""))
         for c, v, kind, why, ev in rows:
             if kind == k:
-                print(f"  {c[:58]:<60} {v:<10} {why}")
+                print(f"  {c[:58]:<60} {v}")
                 if ev:
                     print(f"      {ev}")
 
-    if n_rec:
-        print("\nRE-RUN LIST (paste into run_td_batch.sh CONTAINERS=())")
-        for k in RECOVERABLE:
-            for c in buckets.get(k, []):
-                print(f"  {c}")
+    todo = [c for k in RECOVERABLE for c in buckets.get(k, [])] + buckets.get("READY_TO_RUN", []) \
+           + buckets.get("INCOMPLETE", [])
+    if todo:
+        print(f"\nRUN LIST  ({len(todo)} containers -- paste into run_td_batch.sh CONTAINERS=())")
+        for c in todo:
+            print(f"  {c}")
+    print("\n  inspect any container's raw evidence:")
+    print("  python3 scripts/td_build_triage.py --dump <container> | head -80")
+    return 0
 
 
 if __name__ == "__main__":
