@@ -93,6 +93,14 @@ else
   echo "[batch] API pre-flight OK"
 fi
 
+# Subset override: pass container names as arguments to run only those, e.g.
+#   ./scripts/run_td_batch.sh $(python3 scripts/td_build_triage.py | sed -n '/^RUN LIST/,$p' | awk 'NF==1')
+# With no arguments the full CONTAINERS list above is used, as before.
+if (( $# > 0 )); then
+  CONTAINERS=("$@")
+  echo "[batch] subset override: ${#CONTAINERS[@]} container(s) from the command line"
+fi
+
 mkdir -p "$DATA"
 avail=$(df -BG --output=avail "$DATA" 2>/dev/null | tail -1 | tr -dc '0-9')
 [[ -n "$avail" && "$avail" -lt "$MINGB" ]] && { echo "ERROR: only ${avail}G free (need >= ${MINGB}G)"; exit 1; }
