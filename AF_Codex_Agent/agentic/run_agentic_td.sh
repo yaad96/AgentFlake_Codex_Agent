@@ -223,6 +223,17 @@ for d in Fixed FixedCodeChange FlakyCodeChange Flakym2; do
 done
 if (( need_step1 )); then
   ZIP_PATH="$REPROFLAKE_DIR/data/${ZIP}.zip"
+  # Local archive override, HADOOP-12588 ONLY: local_archives/HADOOP-12588.zip
+  # (substitute with a deterministic forcing) replaces the Zenodo archive -- it
+  # overwrites any cached data/HADOOP-12588.zip, so the stale Zenodo copy can
+  # never be reused. Every other container is fetched exactly as before.
+  LOCAL_ZIP="${LOCAL_ARCHIVES_DIR:-$REPROFLAKE_DIR/local_archives}/${ZIP}.zip"
+  if [[ "$ZIP" == "HADOOP-12588" && -f "$LOCAL_ZIP" ]]; then
+    unzip -t "$LOCAL_ZIP" >/dev/null 2>&1 || { echo "ERROR: local archive $LOCAL_ZIP is corrupt or unreadable"; exit 1; }
+    echo "[step 1a] Using local archive $LOCAL_ZIP (not downloading $URL)"
+    mkdir -p "$REPROFLAKE_DIR/data"
+    cmp -s "$LOCAL_ZIP" "$ZIP_PATH" 2>/dev/null || cp -f "$LOCAL_ZIP" "$ZIP_PATH"
+  fi
   # A cached archive is only trustworthy if it is actually intact. A partial
   # download, or a file evicted by cloud sync (macOS iCloud marks these
   # "dataless" and a read can return nothing), leaves a plausible-looking

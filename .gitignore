@@ -31,3 +31,6 @@ AF_Codex_Agent/.openai_api_key
 
 # Local Python virtual environment
 .venv/
+
+# HADOOP-12588 substitute archive (see AF_Codex_Agent/local_archives/README.md) -- too large for git
+AF_Codex_Agent/local_archives/*.zip
