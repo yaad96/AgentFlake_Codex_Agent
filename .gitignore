@@ -1,4 +1,4 @@
-# Per-run data trees: data/, data_td_credible/, data_od_mahbub_5/ and any
+# Per-run data trees: data/, data_td_credible/ and any
 # future data_*. Large, regenerable run artefacts -- never push these.
 AF_Codex_Agent/data*/
 
