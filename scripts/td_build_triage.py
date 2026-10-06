@@ -85,7 +85,7 @@ def gather_text(container):
     chunks = []
     cdir = DATA / container
     if cdir.is_dir():
-        for rdir in sorted(cdir.glob("run_*"), reverse=True):
+        for rdir in sorted([*cdir.glob("run_*"), *cdir.glob("*/run_*")], reverse=True):
             steps = rdir / "codex_outputs"
             for pat in ("*.log", "validation/*.log", "validation/runs/*.log"):
                 for f in sorted(steps.glob(pat)):
@@ -107,10 +107,10 @@ def gather_text(container):
 
 def verdict_of(container):
     cdir = DATA / container
-    if not cdir.is_dir() or not list(cdir.glob("run_*")):
+    if not cdir.is_dir() or not [*cdir.glob("run_*"), *cdir.glob("*/run_*")]:
         return "NOT_RUN"
     best = "INCOMPLETE"
-    for rdir in sorted(cdir.glob("run_*")):
+    for rdir in sorted([*cdir.glob("run_*"), *cdir.glob("*/run_*")]):
         vf = rdir / "codex_outputs" / "run_verdict.txt"
         v = vf.read_text(errors="replace").strip() if vf.is_file() else ""
         if v == "PASSED":

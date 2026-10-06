@@ -74,7 +74,7 @@ The key file is ignored by Git.
 Each invocation creates the next run directory:
 
 ```text
-AF_Codex_Agent/data/<container>/run_<NN>/
+AF_Codex_Agent/data/<container>/<model>/run_<NN>/
   codex_inputs/
     prompt_user.txt
     prompt_system.txt
@@ -110,7 +110,7 @@ and `FlakyCodeChange/` are removed after completed `PASSED` or `FAILED` runs.
 ## Pipeline
 
 1. The per-type shell script unzips the target project into
-   `data/<container>/run_<NN>/`.
+   `data/<container>/<model>/run_<NN>/`.
 2. It starts the Docker container as `tm_<container>`. For TD, the setup
    container is replaced before Codex starts with narrow mounts for only the
    editable `Flaky/` tree, read-only prompt/reproduction inputs, writable

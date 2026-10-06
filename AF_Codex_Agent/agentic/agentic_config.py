@@ -83,9 +83,6 @@ CODEX_MODELS: dict = {
     "gpt-5.4-mini":  "gpt-5.4-mini",  # smaller sibling of the same generation
     "gpt-5.2":       "gpt-5.2",       # released 2025-12-11
     "gpt-5.5":       "gpt-5.5",       # released 2026-04-23
-    "gpt-5.6-sol":   "gpt-5.6-sol",   # released 2026-07-09, frontier coding
-    "gpt-5.6-terra": "gpt-5.6-terra",
-    "gpt-5.6-luna":  "gpt-5.6-luna",
 }
 # Unknown values are passed through to `codex --model` unchanged rather than
 # rejected: the set of models an account can use changes over time and is

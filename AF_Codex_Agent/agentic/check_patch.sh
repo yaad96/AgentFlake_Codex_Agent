@@ -9,7 +9,8 @@
 # the patch did not fix it.
 #
 # Options
-#   --run run_NN     use data/<container>/<run_NN>/codex_outputs/patch.diff
+#   --run [<model>/]run_NN
+#                    use data/<container>/<model>/run_NN/codex_outputs/patch.diff
 #                    (default: the newest run that has a non-empty patch.diff)
 #   --patch FILE     use an explicit patch instead (e.g. the developer's fix,
 #                    or one you wrote yourself)
@@ -63,8 +64,14 @@ if (( USEDEV )); then
 elif [[ -z "$PATCH" ]]; then
   if [[ -n "$RUN" ]]; then
     PATCH="$ROOT/data/$CONTAINER/$RUN/codex_outputs/patch.diff"
+    if [[ ! -f "$PATCH" ]]; then
+      # run_NN without a model prefix: take the newest model folder that has it.
+      for d in $(ls -dt "$ROOT/data/$CONTAINER"/*/"$RUN" 2>/dev/null); do
+        if [[ -f "$d/codex_outputs/patch.diff" ]]; then PATCH="$d/codex_outputs/patch.diff"; break; fi
+      done
+    fi
   else
-    for d in $(ls -dt "$ROOT/data/$CONTAINER"/run_* 2>/dev/null); do
+    for d in $(ls -dt "$ROOT/data/$CONTAINER"/*/run_* "$ROOT/data/$CONTAINER"/run_* 2>/dev/null); do
       if [[ -s "$d/codex_outputs/patch.diff" ]]; then PATCH="$d/codex_outputs/patch.diff"; break; fi
     done
   fi

@@ -18,15 +18,15 @@ orchestrator:
             [--model gpt-5.4] [--reasoning-effort high]
 
 Preconditions (all set up by run_agentic_od.sh steps 0-9.5):
-    - data/<container>/run_<NN>/Flaky/            staged source tree (host bind-mount)
-    - data/<container>/run_<NN>/Flaky.pristine/   clean snapshot for restore
-    - data/<container>/run_<NN>/traces-flaky/mvn.log   initial failure log
+    - data/<container>/<model>/run_<NN>/Flaky/            staged source tree (host bind-mount)
+    - data/<container>/<model>/run_<NN>/Flaky.pristine/   clean snapshot for restore
+    - data/<container>/<model>/run_<NN>/traces-flaky/mvn.log   initial failure log
     - container tm_<container> running with narrow binds for Flaky/,
       codex_inputs/ (read-only), and codex_outputs/; protected Fixed and
       forcing-reference trees are deliberately not visible to Codex.
     - Codex CLI installed and OPENAI_API_KEY available on the host.
 
-Outputs under data/<container>/run_<NN>/:
+Outputs under data/<container>/<model>/run_<NN>/:
     codex_inputs/ contains prompt_user.txt, prompt_system.txt, and trace_config.json.
     codex_outputs/ contains trial.ndjson, codex.stderr, patch.diff,
     llm_response.json, apply_report.json, verify_after_fix.{log,verdict},

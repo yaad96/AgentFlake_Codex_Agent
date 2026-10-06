@@ -11,7 +11,7 @@ passed = failed = incomplete = 0
 rows, running = [], []
 
 for cdir in sorted(p for p in DATA.iterdir() if p.is_dir()) if DATA.is_dir() else []:
-    for rdir in sorted(cdir.glob("run_*")):
+    for rdir in sorted([*cdir.glob("run_*"), *cdir.glob("*/run_*")]):
         steps = rdir / "codex_outputs"
         complete = (rdir / ".run_complete").is_file()
         verdict = (steps / "run_verdict.txt").read_text().strip() if (steps / "run_verdict.txt").is_file() else ""

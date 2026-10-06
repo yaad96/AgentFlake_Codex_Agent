@@ -72,7 +72,10 @@ if [[ -z "${OPENAI_API_KEY:-}" ]]; then
   echo "ERROR: no API key in $OPENAI_API_KEY_FILE. Exporting OPENAI_API_KEY will NOT work -- it is ignored by design."; exit 1
 fi
 
-DATA_ROOT="$REPROFLAKE_DIR/data/$RESULT_CONTAINER"
+# Each model archives to its own subdirectory, matching run_agentic_pass_at_k.py:
+# data/<container>/<model>/run_NN. AGENTIC_MODEL is set by the wrapper; a direct
+# launcher run falls back to the default model.
+DATA_ROOT="$REPROFLAKE_DIR/data/$RESULT_CONTAINER/${AGENTIC_MODEL:-gpt-5.4}"
 if [[ -n "${AGENTIC_RUN_LABEL:-}" ]]; then
   RUN_LABEL="$AGENTIC_RUN_LABEL"
 else

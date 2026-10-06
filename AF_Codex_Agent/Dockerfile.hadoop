@@ -23,7 +23,9 @@ RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v2.5.0/pr
 # /root/.local/bin. Auth is supplied at run time: the driver passes
 # OPENAI_API_KEY into `docker exec`, and the in-container script runs
 # `codex login --with-api-key` against a per-run CODEX_HOME.
-RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh
+# Pinned to the CLI every other Codex run used. Unpinned, 0.158.0 was installed,
+# which has no model metadata for gpt-5.4 and fails the driver's validity check.
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh -s -- --release 0.149.1
 ENV PATH="/root/.local/bin:${PATH}"
 RUN codex --version
 

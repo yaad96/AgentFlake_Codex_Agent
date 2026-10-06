@@ -19,8 +19,7 @@ Usage:
 Model aliases are defined in agentic_config.py (CODEX_MODELS).
 Common aliases:
     codex          ->  gpt-5.4   (default)
-    gpt-5.2 / gpt-5.4 / gpt-5.4-mini / gpt-5.5 / gpt-5.6-sol /
-    gpt-5.6-terra / gpt-5.6-luna  ->  themselves
+    gpt-5.2 / gpt-5.4 / gpt-5.4-mini / gpt-5.5  ->  themselves
     Any other value is passed through to `codex exec --model` unchanged;
     run `codex debug models` to see what the account can actually use.
 

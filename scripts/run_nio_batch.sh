@@ -106,7 +106,7 @@ started=$(date +%s)
 declare -i skip=0 fail=0 n=0
 for idx in "${!CONTAINERS[@]}"; do
   c="${CONTAINERS[$idx]}"; n+=1
-  if compgen -G "$DATA/$c/run_*/.run_complete" >/dev/null 2>&1; then
+  if { compgen -G "$DATA/$c/*/run_*/.run_complete" || compgen -G "$DATA/$c/run_*/.run_complete"; } >/dev/null 2>&1; then
     echo "[$n/${#CONTAINERS[@]}] SKIP  $c"; skip+=1
   else
     free_now=$(df -BG --output=avail "$DATA" 2>/dev/null | tail -1 | tr -dc '0-9')

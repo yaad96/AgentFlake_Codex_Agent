@@ -7,10 +7,10 @@ post-patch surefire (or NonDex) command inside the running docker container,
 captures stdout/stderr, parses fresh Surefire XML when available (with a strict
 text fallback), and writes:
 
-    data/<container>/run_<NN>/codex_outputs/verify_after_fix.log
-    data/<container>/run_<NN>/codex_outputs/verify_after_fix.verdict
-    data/<container>/run_<NN>/codex_outputs/verify_after_fix.result.json
-    data/<container>/run_<NN>/codex_outputs/verify_after_fix.attempt_NN.json
+    data/<container>/<model>/run_<NN>/codex_outputs/verify_after_fix.log
+    data/<container>/<model>/run_<NN>/codex_outputs/verify_after_fix.verdict
+    data/<container>/<model>/run_<NN>/codex_outputs/verify_after_fix.result.json
+    data/<container>/<model>/run_<NN>/codex_outputs/verify_after_fix.attempt_NN.json
 
 Public verdicts are exactly PASSED or FAILED. PASSED is intentionally strict:
 the command must finish successfully, Maven must report BUILD SUCCESS, at least

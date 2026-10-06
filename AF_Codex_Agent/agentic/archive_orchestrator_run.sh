@@ -2,7 +2,7 @@
 # archive_orchestrator_run.sh - copy a finished legacy orchestrator run into
 # the same durable layout used by the Codex CLI pipeline:
 #
-#     data/<container>/run_<NN>/
+#     data/<container>/<model>/run_<NN>/
 #
 # Auto-increments run_<NN> and never overwrites a previous run. Copies the
 # orchestrator outputs only, dropping stale Codex CLI driver artifacts that may
@@ -21,7 +21,7 @@ if [[ ! -d "$STEPS_OUT_DIR" ]]; then
   exit 0
 fi
 
-base="$REPROFLAKE_DIR/data/$CONTAINER"
+base="$REPROFLAKE_DIR/data/$CONTAINER/$MODEL"
 mkdir -p "$base"
 
 n=1

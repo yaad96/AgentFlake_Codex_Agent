@@ -17,7 +17,8 @@ Usage:
                              [--cli-timeout-s 2400] [--force-rebuild-image]
 
 Run output layout:
-  data/<container>/run_<NN>/
+  data/<container>/<model>/run_<NN>/
+  data/<container>/summary.csv          (all models)
 """
 
 from __future__ import annotations
@@ -827,7 +828,8 @@ CSV_COLS = [
 
 def collect_all_rows_on_disk(runs_root: Path, container: str,
                              test_type: str, model: str = "codex") -> list:
-    """Scan flat run_NN directories under data/<container>."""
+    """Scan the run_NN directories directly under runs_root
+    (data/<container>/<model>)."""
     rows = []
     if not runs_root.is_dir():
         return rows
@@ -843,6 +845,20 @@ def collect_all_rows_on_disk(runs_root: Path, container: str,
     run_dirs.sort()
     for run_n, d in run_dirs:
         rows.append(parse_run(d, container, test_type, run_n, model=model))
+    return rows
+
+
+def collect_container_rows(container_root: Path, container: str,
+                           test_type: str) -> list:
+    """Rows for every model of a container: data/<container>/<model>/run_NN,
+    plus any older runs archived flat as data/<container>/run_NN. Each row's
+    model comes from its meta.json."""
+    rows = collect_all_rows_on_disk(container_root, container, test_type)
+    if container_root.is_dir():
+        for model_dir in sorted(container_root.iterdir()):
+            if model_dir.is_dir() and not re.match(r"run_\d+$", model_dir.name):
+                rows.extend(collect_all_rows_on_disk(model_dir, container,
+                                                     test_type, model_dir.name))
     return rows
 
 
@@ -1030,7 +1046,10 @@ def main():
     api_key = agentic_config.require_openai_api_key()
     os.environ[api_key_var] = api_key
 
-    runs_root = DATA_DIR / args.container
+    # Each model archives to its own subdirectory: data/<container>/<model>/run_NN.
+    # The launchers derive the same path from AGENTIC_MODEL (set below).
+    container_root = DATA_DIR / args.container
+    runs_root = container_root / args.model
     runs_root.mkdir(parents=True, exist_ok=True)
     print(f"[wrapper] container={args.container}  test_type={test_type}  "
           f"runs={args.runs}  max_turns={args.max_iterations}  "
@@ -1210,14 +1229,13 @@ def main():
         cleanup_completed_source_dirs(per_run_dir, row_data["verdict"])
         rows.append(row_data)
 
-        all_rows = collect_all_rows_on_disk(runs_root, args.container,
-                                            test_type, args.model)
-        write_summary(all_rows, runs_root, args.container, row, args.runs)
+        all_rows = collect_container_rows(container_root, args.container, test_type)
+        write_summary(all_rows, container_root, args.container, row, args.runs)
         append_complete_summary([row_data])
 
-    all_rows = collect_all_rows_on_disk(runs_root, args.container, test_type, args.model)
+    all_rows = collect_container_rows(container_root, args.container, test_type)
     if all_rows:
-        write_summary(all_rows, runs_root, args.container, row, args.runs)
+        write_summary(all_rows, container_root, args.container, row, args.runs)
 
     restore_workspace_owner(container_name, runs_root, docker_image)
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)

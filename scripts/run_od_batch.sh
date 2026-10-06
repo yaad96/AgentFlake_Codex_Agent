@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run the 41 OD containers sequentially, one pass@k sweep each.
-# Resumable: a container whose run_NN/.run_complete already exists is skipped.
+# Resumable: a container that already has a completed run (<model>/run_NN/.run_complete) is skipped.
 # Never aborts the batch on a single failure -- it records and moves on.
 set -uo pipefail
 
@@ -79,7 +79,7 @@ declare -i done_n=0 skip_n=0 fail_n=0
 
 for c in "${CONTAINERS[@]}"; do
   done_n+=1
-  if compgen -G "$DATA/$c/run_*/.run_complete" >/dev/null 2>&1; then
+  if { compgen -G "$DATA/$c/*/run_*/.run_complete" || compgen -G "$DATA/$c/run_*/.run_complete"; } >/dev/null 2>&1; then
     echo "[$done_n/${#CONTAINERS[@]}] SKIP  $c (already has a completed run)"
     skip_n+=1
     continue

@@ -87,7 +87,7 @@ started=$(date +%s)
 declare -i n=0 skip=0 fail=0
 for c in "${CONTAINERS[@]}"; do
   n+=1
-  if compgen -G "$DATA/$c/run_*/.run_complete" >/dev/null 2>&1; then
+  if { compgen -G "$DATA/$c/*/run_*/.run_complete" || compgen -G "$DATA/$c/run_*/.run_complete"; } >/dev/null 2>&1; then
     echo "[$n/${#CONTAINERS[@]}] SKIP  $c"; skip+=1; continue
   fi
   free_now=$(df -BG --output=avail "$DATA" 2>/dev/null | tail -1 | tr -dc '0-9')
@@ -95,7 +95,7 @@ for c in "${CONTAINERS[@]}"; do
   t0=$(date +%s)
   if "$PY" "$RUNNER" "$c" --runs "$RUNS" > "$LOGDIR/$c.log" 2>&1; then st="ok"; else st="FAILED"; fail+=1; fi
   echo "      -> $st  $(( $(date +%s)-t0 ))s  $(grep -oE 'DONE\. [0-9]+/[0-9]+ runs PASSED[^ ]*' "$LOGDIR/$c.log" | tail -1)"
-  if [[ "${PRUNE_ZIPS:-0}" == "1" ]] && compgen -G "$DATA/$c/run_*/.run_complete" >/dev/null 2>&1; then
+  if [[ "${PRUNE_ZIPS:-0}" == "1" ]] && { compgen -G "$DATA/$c/*/run_*/.run_complete" || compgen -G "$DATA/$c/run_*/.run_complete"; } >/dev/null 2>&1; then
     zipname=$(awk -F',' -v c="$c" 'NR>1 && $2==c {print $3; exit}' "$CSV")
     if [[ -n "$zipname" && -f "$DATA/$zipname.zip" ]]; then
       rm -f "$DATA/$zipname.zip"; echo "      pruned $zipname.zip"
